@@ -5,3 +5,4 @@ git commit -m "first commit"
 git branch -M main
 git remote add origin https://github.com/BoyleNathaniel/biostat-203b-2025-winter.git
 git push -u origin main
+mkdir hw1 hw2 hw3
