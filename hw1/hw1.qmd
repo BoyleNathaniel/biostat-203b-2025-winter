@@ -325,9 +325,62 @@ This prints:
     494 NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER
     
 
-7. The `icusays.csv.gz` file contains all the ICU stays during the study period. How many ICU stays, identified by `stay_id`, are in this data file? How many unique patients, identified by `subject_id`, are in this data file?
+7. The `icusays.csv.gz` file contains all the ICU stays during the study period. How many ICU stays, identified by `stay_id`, are in this data file?
 
-8. _To compress, or not to compress. That's the question._ Let's focus on the big data file `labevents.csv.gz`. Compare compressed gz file size to the uncompressed file size. Compare the run times of `zcat < ~/mimic/labevents.csv.gz | wc -l` versus `wc -l labevents.csv`. Discuss the trade off between storage and speed for big data files. (Hint: `gzip -dk < FILENAME.gz > ./FILENAME`. Remember to delete the large `labevents.csv` file after the exercise.)
+```{bash}
+#| eval: false
+zcat ~/mimic/icu/icustays.csv.gz | cut -d',' -f3 | tail -n +2 | sort | uniq | wc -l
+```
+
+This prints: 94458 entries for stay_id
+
+How many unique patients, identified by `subject_id`, are in this data file?
+
+```{bash}
+#| eval: false
+zcat ~/mimic/icu/icustays.csv.gz | cut -d',' -f1 | tail -n +2 | sort | uniq | wc -l
+```
+
+We find 65366 entries in subject_id.
+
+8. _To compress, or not to compress. That's the question._ Let's focus on the big data file `labevents.csv.gz`. Compare compressed gz file size to the uncompressed file size.
+
+
+```{bash}
+#| eval: false
+gzip -l ~/mimic/hosp/labevents.csv.gz
+```
+
+This prints the size for compressed and uncompressed version of labevents.csv.gz
+
+We find the compressed file is 2592909134 bytes and the uncompressed file size is 18402851720 bytes.
+
+
+Compare the run times of `zcat < ~/mimic/labevents.csv.gz | wc -l` versus `wc -l labevents.csv`.
+
+```{bash}
+#| eval: false
+time zcat < ~/mimic/hosp/labevents.csv.gz | wc -l
+```
+
+My system had the following results:
+real    1m6.293s
+user    1m4.812s
+sys     0m9.109s
+
+```{bash}
+#| eval: false
+time wc -l  ~/mimic/hosp/labevents.csv
+```
+
+After unpacking the compressed files, my system had the following time:
+real    0m0.049s
+user    0m0.015s
+sys     0m0.015s
+
+Discuss the trade off between storage and speed for big data files.
+
+The increased speed with uncompressed large data files can be 100s of factors faster to work with. However these data files can be incredibly large. It may become difficult to work with multiple large datasets at once on a single system. 
 
 ## Q4. Who's popular in Price and Prejudice
 
