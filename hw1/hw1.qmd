@@ -3,16 +3,12 @@ title: "Biostat 203B Homework 1"
 subtitle: "Due Jan 24, 2025 @ 11:59PM"
 author: "Nathaniel Boyle 006525153"
 format:
-  html:
-    theme: cosmo
-    embed-resources: true
-    number-sections: false
-    toc: true
-    toc-depth: 4
-    toc-location: left
-    code-fold: false
-    link-external-icon: true
-    link-external-newwindow: true
+  pdf:
+    default: true
+    toc: true  
+    toc-depth: 3  
+    number-sections: true  
+    latex-engine: xelatex  
 ---
 
 
@@ -40,25 +36,23 @@ Here is the Certificate link in full: citiprogram.org/verify/?wad4b3eab-a4ed-4be
 
 ## Q3. Linux Shell Commands
 
-
-
 1.
 ```{bash}
-#| eval: true
+#| eval: false
 # Create mirror location for mimic dataset
-ln -s "C:\Users\boyle\Downloads\mimic-iv-3.1\mimic-iv-3.1" ~/mimic
+ln -s "C:/Users/boyle/Downloads/mimic-iv-3.1/mimic-iv-3.1" ~/mimic
 ```
 
 ```{bash}
-#| eval: true
+#| eval: false
 # content of mimic folder
-ls -l ~/mimic/
+ls -l ~/mimic
 ```
 
 2. Display the contents in the folders `hosp` and `icu` using Bash command `ls -l`.
 
 ```{bash}
-#| eval: true
+#| eval: false
 # content of hosp folder in mimic folder
 ls -l ~/mimic/hosp
 ```
@@ -66,7 +60,7 @@ ls -l ~/mimic/hosp
 Contains hospital level data for patients: labs, micro, and electronic medication administration.
 
 ```{bash}
-#| eval: true
+#| eval: false
 # content of icu folder in mimic folder
 ls -l ~/mimic/icu
 ```
@@ -131,7 +125,7 @@ Here is what was printed: subject_id,hadm_id,admittime,dischtime,deathtime,admis
 How many rows are in this data file, excluding the header line?
 ```{bash}
 #| eval: false
-~/mimic/hosp/admissions.csv.gz | tail -n +2 | wc -l
+zcat ~/mimic/hosp/admissions.csv.gz | tail -n +2 | wc -l
 ```
 
 This printed the result: 546028
