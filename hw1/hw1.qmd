@@ -30,6 +30,14 @@ GitHub created. Repository Created.
 
 Display the verification links to your completion report and completion certificate here.
 
+[Completion Report](citiprogram.org/verify/?kca45a062-ea0a-4df1-9e13-71ca2b20e7f0-67410439)
+
+Here is the Completion report in full: citiprogram.org/verify/?kca45a062-ea0a-4df1-9e13-71ca2b20e7f0-67410439
+
+[Completion Certificate](citiprogram.org/verify/?wad4b3eab-a4ed-4be4-b940-dce1260f4f13-67410439)
+
+Here is the Certificate link in full: citiprogram.org/verify/?wad4b3eab-a4ed-4be4-b940-dce1260f4f13-67410439
+
 ## Q3. Linux Shell Commands
 
 1. Make the MIMIC-IV v3.1 data available at location `~/mimic`. The output of the `ls -l ~/mimic` command should be similar to the below (from my laptop).
