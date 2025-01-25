@@ -40,19 +40,52 @@ Here is the Certificate link in full: citiprogram.org/verify/?wad4b3eab-a4ed-4be
 
 ## Q3. Linux Shell Commands
 
-1. Make the MIMIC-IV v3.1 data available at location `~/mimic`. The output of the `ls -l ~/mimic` command should be similar to the below (from my laptop).
+
+
+1.
+```{bash}
+#| eval: true
+# Create mirror location for mimic dataset
+ln -s "C:\Users\boyle\Downloads\mimic-iv-3.1\mimic-iv-3.1" ~/mimic
+```
+
 ```{bash}
 #| eval: true
 # content of mimic folder
 ls -l ~/mimic/
 ```
-Refer to the documentation <https://physionet.org/content/mimiciv/3.1/> for details of data files. Do **not** put these data files into Git; they are big. Do **not** copy them into your directory. Do **not** decompress the gz data files. These create unnecessary big files and are not big-data-friendly practices. Read from the data folder `~/mimic` directly in following exercises. 
 
-  Use Bash commands to answer following questions.
+2. Display the contents in the folders `hosp` and `icu` using Bash command `ls -l`.
 
-2. Display the contents in the folders `hosp` and `icu` using Bash command `ls -l`. Why are these data files distributed as `.csv.gz` files instead of `.csv` (comma separated values) files? Read the page <https://mimic.mit.edu/docs/iv/> to understand what's in each folder.
+```{bash}
+#| eval: true
+# content of hosp folder in mimic folder
+ls -l ~/mimic/hosp
+```
+
+Contains hospital level data for patients: labs, micro, and electronic medication administration.
+
+```{bash}
+#| eval: true
+# content of icu folder in mimic folder
+ls -l ~/mimic/icu
+```
+
+Contains ICU level data. These are the event tables, and are identical in structure to MIMIC-III (chartevents, etc)
+
+Why are these data files distributed as `.csv.gz` files instead of `.csv` (comma separated values) files?
+
+Typically this is done to reduce file size, as this dataset is rather large.
 
 3. Briefly describe what Bash commands `zcat`, `zless`, `zmore`, and `zgrep` do.
+
+zcat: Allows user to view a compressed file without uncompressing the file
+
+zless: Can view compressed files interactively, going page by page.
+
+zmore: same as zless but has reduced navigation options.
+
+zgrep: can find patterns in compressed files.
 
 4. (Looping in Bash) What's the output of the following bash script?
 ```{bash}
@@ -62,11 +95,235 @@ do
   ls -l $datafile
 done
 ```
+This prints out the file location of gz files that start with the letters "a", "l", and "pa."
+
 Display the number of lines in each data file using a similar loop. (Hint: combine linux commands `zcat <` and `wc -l`.)
 
-5. Display the first few lines of `admissions.csv.gz`. How many rows are in this data file, excluding the header line? Each `hadm_id` identifies a hospitalization. How many hospitalizations are in this data file? How many unique patients (identified by `subject_id`) are in this data file? Do they match the number of patients listed in the `patients.csv.gz` file? (Hint: combine Linux commands `zcat <`, `head`/`tail`, `awk`, `sort`, `uniq`, `wc`, and so on.)
+```{bash}
+#| eval: false
+for datafile in ~/mimic/hosp/{a,l,pa}*.gz
+do
+  zcat $datafile | wc -l
+done
+```
 
-6. What are the possible values taken by each of the variable `admission_type`, `admission_location`, `insurance`, and `ethnicity`? Also report the count for each unique value of these variables in decreasing order. (Hint: combine Linux commands `zcat`, `head`/`tail`, `awk`, `uniq -c`, `wc`, `sort`, and so on; skip the header line.)
+The result printed was: 546029
+
+
+5. Display the first few lines of `admissions.csv.gz`.
+```{bash}
+#| eval: false
+zcat ~/mimic/hosp/admissions.csv.gz | head
+```
+
+Here is what was printed: subject_id,hadm_id,admittime,dischtime,deathtime,admission_type,admit_provider_id,admission_location,discharge_location,insurance,language,marital_status,race,edregtime,edouttime,hospital_expire_flag
+10000032,22595853,2180-05-06 22:23:00,2180-05-07 17:15:00,,URGENT,P49AFC,TRANSFER FROM HOSPITAL,HOME,Medicaid,English,WIDOWED,WHITE,2180-05-06 19:17:00,2180-05-06 23:30:00,0
+10000032,22841357,2180-06-26 18:27:00,2180-06-27 18:49:00,,EW EMER.,P784FA,EMERGENCY ROOM,HOME,Medicaid,English,WIDOWED,WHITE,2180-06-26 15:54:00,2180-06-26 21:31:00,0
+10000032,25742920,2180-08-05 23:44:00,2180-08-07 17:50:00,,EW EMER.,P19UTS,EMERGENCY ROOM,HOSPICE,Medicaid,English,WIDOWED,WHITE,2180-08-05 20:58:00,2180-08-06 01:44:00,0
+10000032,29079034,2180-07-23 12:35:00,2180-07-25 17:55:00,,EW EMER.,P06OTX,EMERGENCY ROOM,HOME,Medicaid,English,WIDOWED,WHITE,2180-07-23 05:54:00,2180-07-23 14:00:00,0
+10000068,25022803,2160-03-03 23:16:00,2160-03-04 06:26:00,,EU OBSERVATION,P39NWO,EMERGENCY ROOM,,,English,SINGLE,WHITE,2160-03-03 21:55:00,2160-03-04 06:26:00,0
+10000084,23052089,2160-11-21 01:56:00,2160-11-25 14:52:00,,EW EMER.,P42H7G,WALK-IN/SELF REFERRAL,HOME HEALTH CARE,Medicare,English,MARRIED,WHITE,2160-11-20 20:36:00,2160-11-21 03:20:00,0
+10000084,29888819,2160-12-28 05:11:00,2160-12-28 16:07:00,,EU OBSERVATION,P35NE4,PHYSICIAN REFERRAL,,Medicare,English,MARRIED,WHITE,2160-12-27 18:32:00,2160-12-28 16:07:00,0
+10000108,27250926,2163-09-27 23:17:00,2163-09-28 09:04:00,,EU OBSERVATION,P40JML,EMERGENCY ROOM,,,English,SINGLE,WHITE,2163-09-27 16:18:00,2163-09-28 09:04:00,0
+10000117,22927623,2181-11-15 02:05:00,2181-11-15 14:52:00,,EU OBSERVATION,P47EY8,EMERGENCY ROOM,,Medicaid,English,DIVORCED,WHITE,2181-11-14 21:51:00,2181-11-15 09:57:00,0
+
+
+How many rows are in this data file, excluding the header line?
+```{bash}
+#| eval: false
+~/mimic/hosp/admissions.csv.gz | tail -n +2 | wc -l
+```
+
+This printed the result: 546028
+
+Each `hadm_id` identifies a hospitalization. How many hospitalizations are in this data file?
+
+
+```{bash}
+#| eval: false
+zcat ~/mimic/hosp/admissions.csv.gz | cut -d',' -f2 | tail -n +2 | sort | uniq | wc -l
+```
+
+This printed: 546028 unique hospitalization ids
+
+How many unique patients (identified by `subject_id`) are in this data file? 
+
+```{bash}
+#| eval: false
+zcat ~/mimic/hosp/admissions.csv.gz | cut -d',' -f1 | tail -n +2 | sort | uniq | wc -l
+```
+
+This printed: 223452 unique subject ids.
+
+
+Do they match the number of patients listed in the `patients.csv.gz` file? 
+
+```{bash}
+#| eval: false
+zcat ~/mimic/hosp/patients.csv.gz | cut -d',' -f1 | tail -n +2 | sort | uniq | wc -l
+```
+
+No they do not. This bash command printed: 364627 unique subject ids.
+
+6. What are the possible values taken by each of the variable `admission_type`, `admission_location`, `insurance`, and `ethnicity`?
+
+Admission Type
+```{bash}
+#| eval: false
+zcat ~/mimic/hosp/admissions.csv.gz | cut -d',' -f6 | tail -n +2 | sort | uniq
+```
+
+This printed the following variables:
+AMBULATORY OBSERVATION
+DIRECT EMER.
+DIRECT OBSERVATION
+ELECTIVE
+EU OBSERVATION
+EW EMER.
+OBSERVATION ADMIT
+SURGICAL SAME DAY ADMISSION
+URGENT
+
+Admission Location
+```{bash}
+#| eval: false
+zcat ~/mimic/hosp/admissions.csv.gz | cut -d',' -f8 | tail -n +2 | sort | uniq
+```
+
+This printed the following locations:
+AMBULATORY SURGERY TRANSFER
+CLINIC REFERRAL
+EMERGENCY ROOM
+INFORMATION NOT AVAILABLE
+INTERNAL TRANSFER TO OR FROM PSYCH
+PACU
+PHYSICIAN REFERRAL
+PROCEDURE SITE
+TRANSFER FROM HOSPITAL
+TRANSFER FROM SKILLED NURSING FACILITY
+WALK-IN/SELF REFERRAL
+
+Race
+```{bash}
+#| eval: false
+zcat ~/mimic/hosp/admissions.csv.gz | cut -d',' -f13 | tail -n +2 | sort | uniq
+```
+
+This printed the following ethnicities:
+AMERICAN INDIAN/ALASKA NATIVE
+ASIAN
+ASIAN - ASIAN INDIAN
+ASIAN - CHINESE
+ASIAN - KOREAN
+ASIAN - SOUTH EAST ASIAN
+BLACK/AFRICAN
+BLACK/AFRICAN AMERICAN
+BLACK/CAPE VERDEAN
+BLACK/CARIBBEAN ISLAND
+HISPANIC OR LATINO
+HISPANIC/LATINO - CENTRAL AMERICAN
+HISPANIC/LATINO - COLUMBIAN
+HISPANIC/LATINO - CUBAN
+HISPANIC/LATINO - DOMINICAN
+HISPANIC/LATINO - GUATEMALAN
+HISPANIC/LATINO - HONDURAN
+HISPANIC/LATINO - MEXICAN
+HISPANIC/LATINO - PUERTO RICAN
+HISPANIC/LATINO - SALVADORAN
+MULTIPLE RACE/ETHNICITY
+NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER
+OTHER
+PATIENT DECLINED TO ANSWER
+PORTUGUESE
+SOUTH AMERICAN
+UNABLE TO OBTAIN
+UNKNOWN
+WHITE
+WHITE - BRAZILIAN
+WHITE - EASTERN EUROPEAN
+WHITE - OTHER EUROPEAN
+WHITE - RUSSIAN
+
+Also report the count for each unique value of these variables in decreasing order. 
+
+Admission Type
+```{bash}
+#| eval: false
+zcat ~/mimic/hosp/admissions.csv.gz | cut -d',' -f6 | tail -n +2 | sort | uniq -c | sort -nr
+```
+
+This prints:
+177459 EW EMER.
+ 119456 EU OBSERVATION
+  84437 OBSERVATION ADMIT
+  54929 URGENT
+  42898 SURGICAL SAME DAY ADMISSION
+  24551 DIRECT OBSERVATION
+  21973 DIRECT EMER.
+  13130 ELECTIVE
+   7195 AMBULATORY OBSERVATION
+
+Admission Location
+```{bash}
+#| eval: false
+zcat ~/mimic/hosp/admissions.csv.gz | cut -d',' -f8 | tail -n +2 | sort | uniq -c | sort -nr
+```
+
+This prints:
+244179 EMERGENCY ROOM
+ 163228 PHYSICIAN REFERRAL
+  56227 TRANSFER FROM HOSPITAL
+  42365 WALK-IN/SELF REFERRAL
+  12965 CLINIC REFERRAL
+   8518 PROCEDURE SITE
+   6317 TRANSFER FROM SKILLED NURSING FACILITY
+   5837 INTERNAL TRANSFER TO OR FROM PSYCH
+   5734 PACU
+    402 INFORMATION NOT AVAILABLE
+    255 AMBULATORY SURGERY TRANSFER
+      1
+      
+Race
+```{bash}
+#| eval: false
+zcat ~/mimic/hosp/admissions.csv.gz | cut -d',' -f13 | tail -n +2 | sort | uniq -c | sort -nr
+```
+
+This prints:
+ 336538 WHITE
+  75482 BLACK/AFRICAN AMERICAN
+  19788 OTHER
+  13972 WHITE - OTHER EUROPEAN
+  13870 UNKNOWN
+  10903 HISPANIC/LATINO - PUERTO RICAN
+   8287 HISPANIC OR LATINO
+   7809 ASIAN
+   7644 ASIAN - CHINESE
+   6597 WHITE - RUSSIAN
+   6205 BLACK/CAPE VERDEAN
+   6070 HISPANIC/LATINO - DOMINICAN
+   3875 BLACK/CARIBBEAN ISLAND
+   3495 BLACK/AFRICAN
+   3478 UNABLE TO OBTAIN
+   2162 PATIENT DECLINED TO ANSWER
+   2082 PORTUGUESE
+   1973 ASIAN - SOUTH EAST ASIAN
+   1886 WHITE - EASTERN EUROPEAN
+   1858 HISPANIC/LATINO - GUATEMALAN
+   1661 ASIAN - ASIAN INDIAN
+   1526 WHITE - BRAZILIAN
+   1320 HISPANIC/LATINO - SALVADORAN
+   1247 AMERICAN INDIAN/ALASKA NATIVE
+    920 HISPANIC/LATINO - COLUMBIAN
+    883 HISPANIC/LATINO - MEXICAN
+    774 SOUTH AMERICAN
+    725 HISPANIC/LATINO - HONDURAN
+    664 ASIAN - KOREAN
+    641 HISPANIC/LATINO - CUBAN
+    603 HISPANIC/LATINO - CENTRAL AMERICAN
+    596 MULTIPLE RACE/ETHNICITY
+    494 NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER
+    
 
 7. The `icusays.csv.gz` file contains all the ICU stays during the study period. How many ICU stays, identified by `stay_id`, are in this data file? How many unique patients, identified by `subject_id`, are in this data file?
 
