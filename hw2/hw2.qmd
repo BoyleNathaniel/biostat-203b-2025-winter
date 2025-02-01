@@ -80,11 +80,18 @@ cat("\nStructure of data frame from read.csv:\n")
 df_read.csv <- read.csv("~/mimic/hosp/admissions.csv.gz")
 str(df_read.csv)
 
+cat("\nStructure of data frame from fread:\n")
+df_fread <- fread("~/mimic/hosp/admissions.csv.gz")
+str(df_fread)
+
 cat("\nColumn types for read_csv:\n")
 print(sapply(df_read_csv, class))
 
 cat("\nColumn types for read.csv:\n")
 print(sapply(df_read.csv, class))
+
+cat("\nColumn types for fread:\n")
+print(sapply(df_fread, class))
 ```
 ```{r}
 #compare memory
@@ -94,6 +101,8 @@ print(object_size(df_read_csv))
 cat("\nMemory usage of df_read_csv_base (read.csv):\n")
 print(object_size(df_read.csv))
 
+cat("\nMemory usage of df_fread (read.csv):\n")
+print(object_size(df_fread))
 
 ```
 Which function is fastest?
@@ -102,19 +111,75 @@ functions out, being twice as fast as read_csv and nearly 8 times faster than
 read.csv.
 
 Is there difference in the (default) parsed data types?
-Yes. Read_csv is able to distinguesh data and time formats automatically.
+Yes. Read_csv and fread is able to distinguesh data and time formats automatically.
 read.csv treats these same columns as "characters." 
-Read_csv treates certain columns as "numeric" while read.csv treates them as 
+Read_csv treates certain columns as "numeric" while read.csv and fread treates them as 
 integers. The difference here is subtle, but typically "numeric" or "double
 floating" data points typically have slightly increased utility, like storing
 decimals.
 
 How much memory does each resultant dataframe or tibble use?
-(Hint: `system.time` measures run times; `pryr::object_size` measures memory usage; all these readers can take gz file as input without explicit decompression.) 
+Memory usage of read_csv:
+70.02 MB
+Memory usage of read.cvs:
+200.10 MB
+Memory usage of fread:
+63.47 MB
+
+read.csv uses almost 3 times the memeory as read_csv and nearly 4 times the
+memory of fread.
 
 ### Q1.2 User-supplied data types
 
-Re-ingest `admissions.csv.gz` by indicating appropriate column data types in `read_csv`. Does the run time change? How much memory does the result tibble use? (Hint: `col_types` argument in `read_csv`.)
+Re-ingest `admissions.csv.gz` by indicating appropriate column data types 
+in `read_csv`. Does the run time change?
+
+Yes the run time is slightly after after injesting (about 0.8 seconds faster).
+
+How much memory does the result tibble use?
+
+The memory taken is now 59.10 MB compared to the orignial 70.02 MB  
+(Hint: `col_types` argument in `read_csv`.)
+
+from read_csv we can see a few ingests we can do.
+subject_id and hadm_id can become an integer.
+We could make race a factor and martial status.
+We can make hospital_expire_flag a factor (has binary output).
+
+```{r}
+#check values of read_csv directly
+#head(df_read_csv)
+#check values of hospital_expire_flag
+#unique(df_read_csv$hospital_expire_flag)
+#unique(df_read_csv$marital_status)
+
+#change column types
+ingested_csv <- read_csv("~/mimic/hosp/admissions.csv.gz", 
+                         col_types = cols(subject_id = col_integer(),
+                                          hadm_id = col_integer(),
+                                          hospital_expire_flag = col_factor(),
+                                          marital_status = col_factor(),
+                                          race = col_factor()
+                                          ))
+
+read_time_injest <- system.time({
+  ingested_csv <- read_csv("~/mimic/hosp/admissions.csv.gz", 
+                           col_types = cols(
+                             subject_id = col_integer(),
+                             hadm_id = col_integer(),
+                             hospital_expire_flag = col_factor(),
+                             marital_status = col_factor(),
+                             race = col_factor()
+                           ))
+})
+print("Time for injest")
+print(read_time_injest)
+
+cat("\nMemory usage of injested dataframe (read.csv):\n")
+print(object_size(ingested_csv))
+
+```
+
 
 ## Q2. Ingest big data files
 
