@@ -1,7 +1,7 @@
 ---
 title: "Biostat 203B Homework 2"
 subtitle: Due Feb 7, 2025 @ 11:59PM
-author: "Your Name and UID"
+author: "Nathaniel Boyle and 006525153"
 format:
   html:
     theme: cosmo
