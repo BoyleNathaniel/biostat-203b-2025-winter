@@ -54,7 +54,63 @@ ls -l ~/mimic/icu/
 
 There are quite a few utilities in R for reading plain text data files. Let us test the speed of reading a moderate sized compressed csv file, `admissions.csv.gz`, by three functions: `read.csv` in base R, `read_csv` in tidyverse, and `fread` in the data.table package.
 
-Which function is fastest? Is there difference in the (default) parsed data types? How much memory does each resultant dataframe or tibble use? (Hint: `system.time` measures run times; `pryr::object_size` measures memory usage; all these readers can take gz file as input without explicit decompression.) 
+```{r}
+#measuring time difference
+read_time_1 <- system.time(read_csv("~/mimic/hosp/admissions.csv.gz"))
+read_time_2 <- system.time(read.csv("~/mimic/hosp/admissions.csv.gz"))
+read_time_3 <- system.time(fread("~/mimic/hosp/admissions.csv.gz"))
+
+print("Time for read_csv")
+print(read_time_1)
+
+print("Time for read.csv")
+print(read_time_2)
+
+print("Time for fread")
+print(read_time_3)
+```
+
+```{r}
+#measuring parsing difference
+cat("Structure of data frame from read_csv:\n")
+df_read_csv <- read_csv("~/mimic/hosp/admissions.csv.gz")
+str(df_read_csv)
+
+cat("\nStructure of data frame from read.csv:\n")
+df_read.csv <- read.csv("~/mimic/hosp/admissions.csv.gz")
+str(df_read.csv)
+
+cat("\nColumn types for read_csv:\n")
+print(sapply(df_read_csv, class))
+
+cat("\nColumn types for read.csv:\n")
+print(sapply(df_read.csv, class))
+```
+```{r}
+#compare memory
+cat("Memory usage of df_read_csv (read_csv):\n")
+print(object_size(df_read_csv))
+
+cat("\nMemory usage of df_read_csv_base (read.csv):\n")
+print(object_size(df_read.csv))
+
+
+```
+Which function is fastest?
+read_csv was nearly 4 times faster than read.csv. However fread beats both
+functions out, being twice as fast as read_csv and nearly 8 times faster than
+read.csv.
+
+Is there difference in the (default) parsed data types?
+Yes. Read_csv is able to distinguesh data and time formats automatically.
+read.csv treats these same columns as "characters." 
+Read_csv treates certain columns as "numeric" while read.csv treates them as 
+integers. The difference here is subtle, but typically "numeric" or "double
+floating" data points typically have slightly increased utility, like storing
+decimals.
+
+How much memory does each resultant dataframe or tibble use?
+(Hint: `system.time` measures run times; `pryr::object_size` measures memory usage; all these readers can take gz file as input without explicit decompression.) 
 
 ### Q1.2 User-supplied data types
 
