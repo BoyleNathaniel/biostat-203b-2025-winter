@@ -68,7 +68,7 @@ Connect to the `icustays` table.
 # full ICU stays table
 icustays_tble <- tbl(con_bq, "icustays") |>
   arrange(subject_id, hadm_id, stay_id) |>
-  # show_query() |>
+   # show_query() |>
   print(width = Inf)
 ```
 
@@ -76,24 +76,55 @@ icustays_tble <- tbl(con_bq, "icustays") |>
 
 Connect to the `admissions` table.
 ```{r}
-# # TODO
-# admissions_tble <- 
+# create admissions table from con_bq
+ admissions_tble <- tbl(con_bq, "admissions") |>
+  arrange(subject_id, hadm_id) |>
+  print(width = Inf)
+
 ```
 
 ### Q1.4 `patients` data
 
 Connect to the `patients` table.
 ```{r}
-# # TODO
-# patients_tble <-
+# creating patients table from con_bq
+ patients_tble <- tbl(con_bq, "patients") |>
+  arrange(subject_id) |>
+  print(width = Inf) # unlimited columns printed
+
 ```
 
 ### Q1.5 `labevents` data
 
 Connect to the `labevents` table and retrieve a subset that only contain subjects who appear in `icustays_tble` and the lab items listed in HW3. Only keep the last lab measurements (by `storetime`) before the ICU stay and pivot lab items to become variables/columns. Write all steps in _one_ chain of pipes.
 ```{r}
-# # TODO
-# labevents_tble <- 
+#filter store lab measurments
+lab_item_ids <- c(50912, 50971, 50983, 50902, 
+                  50882, 51221, 51301, 50931)
+
+# create labevents table
+ labevents_tble <- tbl(con_bq, "labevents") |>
+    # Join with icustays_tble on subject_id
+  inner_join(icustays_tble, by = "subject_id") |>
+   
+     # Filter lab events that are before ICU stay
+  filter(storetime < intime) |>
+  
+  select(subject_id, itemid, storetime, valuenum) |>
+  
+   group_by(subject_id, itemid) |>
+   
+   filter(storetime == max(storetime)) |>
+   
+  filter(itemid %in% lab_item_ids) |>
+   
+     # Pivot wider to make lab items into columns
+  pivot_wider(names_from = itemid, values_from = valuenum) |>
+   
+  arrange(subject_id, storetime, itemid) |>
+   
+  print(width = Inf) # unlimited columns printed
+
 ```
 
 ### Q1.6 `chartevents` data
