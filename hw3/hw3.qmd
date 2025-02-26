@@ -48,10 +48,15 @@ Do a similar visualization for the patient with `subject_id` 10063848 using ggpl
 ```{bash}
 # using the same bash command from hw-2 to get a filtered lab
 # events file 
-zcat ~/mimic/hosp/labevents.csv.gz |\ 
+zcat ~/mimic/hosp/labevents.csv.gz |\
 awk -F ',' 'NR==1 ||
 $5+0 ~ /^(50912|50971|50983|50902|50882|51221|51301|50931)$/' |\
 cut -d ',' -f2,5,7,10 | gzip > labevents_filtered.csv.gz 
+```
+
+```{bash}
+# check results of filter
+zcat < labevents_filtered.csv.gz | head
 ```
 
 
@@ -64,7 +69,9 @@ ds_par <- open_dataset("labevents_pq") %>%
   filter(itemid %in% c(50912,50971,50983,50902,50882, 
                        51221, 51301, 50931)) %>% 
   arrange(subject_id, charttime, itemid) 
-labevents_pq <- ds_par %>% collect() 
+labevents_pq <- ds_par %>%
+  collect() 
+
 print(format(object.size(labevents_pq), units = 'auto'))
 # display the number of rows
 cat("Number of rows:" , nrow(labevents_pq), "\n") 
@@ -108,39 +115,46 @@ patient_labevents <- labevents_pq %>%
 
 ```{r}
 adt_data <- bind_rows( 
-  patient_admissions %>% mutate(event_type = "ADT", 
-                                event_time = admittime, 
-                                care_unit = admission_location), 
-  patient_transfers %>% mutate(
-    event_type = "Transfer", 
-    event_time = intime, 
-    care_unit = careunit) 
+  patient_admissions %>% mutate(admission_type = "ADT", 
+                                admittime = as_datetime(admittime), 
+                                admission_location = "Location"), 
+  patient_transfers %>% 
+    mutate(
+      eventtype = "Transfer", 
+      eventtime = as_datetime(intime))
+  )
+
 # Prepare the lab events data
 lab_data <- patient_labevents %>% 
-  select(subj ect_id, charttime, itemid) %>% 
-  mutate(event_type = "Lab", event_time = charttime) %>% 
-  left_join(pat ient_pr ocedures, by= "itemid") 
+  select(subject_id, charttime, itemid) %>% 
+  mutate(event_type = "Lab", event_time = as_datetime(charttime)) %>% 
+  left_join(patient_procedures, by = "subject_id")
+
 # Prepare the procedure data 
-procedure_data <- pati ent_procedur es %>% 
-  select(subj ect_id, procedure_time, icd9 code) %>% 
-  mutate(event_type = "Procedure", event time procedure_time) 
+procedure_data <- patient_procedures %>% 
+  select(subject_id, chartdate, icd_code) %>% 
+  mutate(event_type = "Procedure", event_time = as_datetime(chartdate))
+
 # Prepare the diagnoses data
-diagnosis_data <- patient _diagnoses %>% 
-  select(subject_id, chartdate, icd9_code) %>% 
-  mutate(event_type "Diagnosis", event_time = chartdate) 
+diagnosis_data <- patient_diagnoses %>% 
+  select(subject_id, icd_code) %>% 
+  mutate(event_type = "Diagnosis")
+
 # Combine all data
-combined_data <- bind_rows(adt_data, lab_data, procedur e_data, diagnosis_data) 
+combined_data <- bind_rows(adt_data, lab_data, procedure_data, diagnosis_data)
+
 # Add information about whether the care unit is ICU/CCU
 combined_data <- combined_data %>% 
-  mutate(is_icu = ifelse(care_unit %in% c("ICU", "CCU"), 
+  mutate(is_icu = ifelse(careunit %in% c("ICU", "CCU"), 
                          "ICU/CCU" , "Other")) 
 # plot, lab events represented by crosses, 
 # procedures by dots 
 ggplot(combined_data, aes(x = event_time, 
                           y = event_type, 
-                          color= care_uni t, 
-                          size= is_icu)) + 
-  geom_segment(aes(xend = event_time, yend = event _type)) + 
+                          color = admission_location, 
+                          size = is_icu)) + 
+  geom_segment(aes(xend = event_time, 
+                   yend = event_type)) + 
   geom_point(data = lab_data, aes(shape = "Lab")) + 
   geom_point(data = procedure_data, aes(shape = "Procedure")) + 
   scale_size_manual(values = c (1, 3)) + # ICU/CCU size variation
