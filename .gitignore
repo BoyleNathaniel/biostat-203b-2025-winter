@@ -5,3 +5,7 @@
 
 # Ignore all JSON files
 *.json
+
+#Ignore all csv and gz files
+*.csv
+*.gz
