@@ -454,17 +454,15 @@ We are interested in the lab measurements of creatinine (50912), potassium (5097
 library(arrow) # To read Parquet files
 library(dplyr) # For data manipulation
 library(lubridate) # To handle date/time operations
-
-
-# we have already filtered the data with bash in Q1 and in hw2 
-# putting the code here for ease of reading 
 ```
 
-```{bash eval=FALSE}
+```{bash}
+#filter for storetime this time
+
 zcat ~/mimic/hosp/labevents.csv.gz | \
 awk -F ',' 'NR==1 || 
 $5+0 ~ /^(50912|50971|50983|50902|50882|51221|51301|50931)$/'|\
-cut -d ',' -f2,5,7,10 | gzip > labevents_filtered.csv.gz
+cut -d ',' -f2,5,8,10 | gzip > labevents_filtered.csv.gz
 ```
 
 ```{r}
@@ -478,14 +476,14 @@ ds_par <- open_dataset("labevents_pq") %>%
   select(subject_id, itemid, storetime, valuenum) %>% 
   filter(itemid %in% c(50912,50971,50983,50902,50882, 
                        51221, 51301, 50931)) %>% 
-  arrange(subject_id, charttime, itemid) 
+  arrange(subject_id, storetime, itemid) 
 labevents_pq <- ds_par %>% collect()  
 # Filter the dictionary file with ids we want
 item_ids <-c(50912, 50971, 50983, 
              50902, 50882, 51221, 51301, 50931)
 
 # Read the dictionary dataset
-d_items <- read_csv("-/mimic/hosp/d_labitems.csv.gz")
+d_items <- read_csv("~/mimic/hosp/d_labitems.csv.gz")
 
 # Filter d_items to include only the relevant measurements
 lab_measurements <- d_items %>%
@@ -514,7 +512,7 @@ final_data <- labevents_filtered %>%
 # Select relevant columns and reshape the data
 # add prefix lab to know its from labevents 
 
-rm(final _labevents) 
+rm(final_labevents) 
 final_labevents <- final_data %>% 
   select(subject_id, stay_id, itemid, valuenum) %>% 
   pivot_wider(names_from = itemid, values_from = valuenum, 
@@ -540,8 +538,8 @@ item_to_labname <- lab_measurements %>% select(itemid, label) %>%
   deframe() # Convert to a named vector
 
 #Rename columns with lab names (map itemid to label) 
-final_labevents <- final_labevent s %>% 
-  rename_with(- purrr : :map_chr(.x, f uncti on(item) { 
+final_labevents <- final_labevents %>% 
+  rename_with(~ purrr::map_chr(.x, function(item) { 
     # The column name is the numeric itemid itself 
     label <- item_to_labname[as.numeric(item)]
     
@@ -569,9 +567,17 @@ zcat < ~/mimic/icu/d_items.csv.gz | head
 
 We are interested in the vitals for ICU patients: heart rate (220045), systolic non-invasive blood pressure (220179), diastolic non-invasive blood pressure (220180), body temperature in Fahrenheit (223761), and respiratory rate (220210). Retrieve a subset of `chartevents.csv.gz` only containing these items for the patients in `icustays_tble`. Further restrict to the first vital measurement (by `storetime`) within the ICU stay. The final `chartevents_tble` should have one row per ICU stay and columns for each vital measurement. 
 
-![](chartevents_tble.png)
 
 Hint: Use the Parquet format you generated in Homework 2. For reproducibility, make `chartevents_pq` folder available at the current working directory, for example, by a symbolic link.
+
+```{bash}
+# extract chartevents with bash command
+zcat ~/mimic/icu/chartevents.csv.gz | \
+awk -F ',' 'NR==1 ||
+$7+0 ~ /^(220045|220179|220180|223761|220210)$/'|\
+cut -d ',' -f2,5,8,10 | gzip > chartevents_filtered.csv.gz
+
+```
 
 ## Q7. Putting things together
 
