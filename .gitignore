@@ -2,6 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+hw3_Copy.qmd
 
 # Ignore all JSON files
 *.json
