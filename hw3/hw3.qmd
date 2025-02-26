@@ -1,7 +1,7 @@
 ---
 title: "Biostat 203B Homework 3"
-subtitle: "Due Feb 21 @ 11:59PM"
-author: "Your Name and UID"
+subtitle: "Due Feb 23 @ 11:59PM"
+author: "Nathaniel Boyle and 006525153"
 format:
   html:
     theme: cosmo
@@ -58,19 +58,19 @@ cut -d ',' f2,5,7,10 | gzip > labevents_filtered.csv.gz
 ```{r}
 #writing the parquetfile
 labevents <- read_csv("labevents_filtered.csv.gz")
-write _parquet (labevents, "labevent s _pq")
-ds_par <- open_dataset("l abevents_pq") %>%
-  select(subject_id, itemid, char ttime, valuenum) %>% 
+write_parquet (labevents, "labevents_pq")
+ds_par <- open_dataset("labevents_pq") %>%
+  select(subject_id, itemid, charttime, valuenum) %>% 
   filter(itemid %in% c(50912,50971,50983,50902,50882, 
                        51221, 51301, 50931)) %>% 
   arrange(subject_id, charttime, itemid) 
 labevents_pq <- ds_par %>% collect() 
-print(format(object.size(labevent s_pq), units = 'auto'))
+print(format(object.size(labevents_pq), units = 'auto'))
 # display the number of rows
 cat("Number of rows:" , nrow(labevents_pq), "\n") 
 
-# Display the first 10 rows of the dataframe head
-(labevents_pq, 10) 
+# Display the first 10 rows of the dataframe 
+head(labevents_pq, 10) 
 ```
 
 ```{r}
@@ -469,56 +469,69 @@ cut -d ',' -f2,5,7,10 | gzip > labevents_filtered.csv.gz
 
 ```{r}
 #writing the parquet file 
-
 labevents <- read_csv("labevents_filtered.csv.gz") 
-write_parquet (labevents, "labevents_pq") %>%
-  ds_par <- open_dataset("labevents_pq") %>% 
-  select(subj ect_id, i t emid, st or etime, valuenum) %>% 
-  filter(i temid %in% c(50912,50971,50983,50902,50882, 
-                        51221, 51301, 50931)) %>% 
-  arrange(subject_id, storetime, itemid) labevents_pq <- ds_par %>% 
-  collect() 
+
+
+labevents <- read_csv("labevents_filtered.csv.gz")
+write_parquet (labevents, "labevents_pq")
+ds_par <- open_dataset("labevents_pq") %>%
+  select(subject_id, itemid, storetime, valuenum) %>% 
+  filter(itemid %in% c(50912,50971,50983,50902,50882, 
+                       51221, 51301, 50931)) %>% 
+  arrange(subject_id, charttime, itemid) 
+labevents_pq <- ds_par %>% collect()  
 # Filter the dictionary file with ids we want
-item_ids <-c(50912, 50971, 50983, 50902, 50882, 51221, 51301, 50931) 
+item_ids <-c(50912, 50971, 50983, 
+             50902, 50882, 51221, 51301, 50931)
+
 # Read the dictionary dataset
-d_items <- read_csv("-/mimic/hosp/d_labitems.csv.gz") 
+d_items <- read_csv("-/mimic/hosp/d_labitems.csv.gz")
+
 # Filter d_items to include only the relevant measurements
 lab_measurements <- d_items %>%
   filter(itemid %in% item_ids) 
-#Now we need to join these datasets
+
+# Now we need to join these datasets
 labevents_filtered <- labevents_pq %>% 
   filter(itemid %in% item_ids) %>% 
-  left_join(lab_measur ements, by = "itemid") 
+  left_join(lab_measurements, by = "itemid") 
+
 # Convert storetime and intime to date-time objects 
 labevents_filtered <- labevents_filtered %>% 
-  mutate(storetime = as_datetime(st oretime)) 
-icust ays_tble <- icust ays_tble %>% 
-  mutate(intime = as_datetime(intime)) 
+  mutate(storetime = as_datetime(storetime)) 
+icustays_tble <- icustays_tble %>% 
+  mutate(intime = as_datetime(intime))
+
 # Join the labevents with icustays to identify the last measurement 
 # before ICU stay
-final_data <- labevents_filtered %>% inner_join(icustays_tble, by = "subject_id") %>% filter(storetime <= intime) %>% group_by(subject_id, itemid) %>% 
-  filter(storet ime == max(storetime)) %>%
+final_data <- labevents_filtered %>%
+  inner_join(icustays_tble, by = "subject_id") %>%
+  filter(storetime <= intime) %>%
+  group_by(subject_id, itemid) %>% 
+  filter(storetime == max(storetime)) %>%
   ungroup() 
+
 # Select relevant columns and reshape the data
 # add prefix lab to know its from labevents 
 
 rm(final _labevents) 
 final_labevents <- final_data %>% 
-  select(subj ect_id, st ay_id, i temid, valuenum) %>% 
+  select(subject_id, stay_id, itemid, valuenum) %>% 
   pivot_wider(names_from = itemid, values_from = valuenum, 
               names_prefix = "lab_") 
+
 # since there are multi ple values of valunum, 
 # pivot_wider will not work, unless 
 # we deal with this, so we will use the avearge 
 # to deal with multiple values. 
 
 final_data_clean <- final_data %>% 
-  group_by(subj ect_id, stay_id, itemid) %>% 
+  group_by(subject_id, stay_id, itemid) %>% 
   summarize(valuenum = mean(valuenum, na.rm =TRUE), 
             .groups = "drop")
 
 final_labevents <- final_data_clean %>% 
-  select(subj ect_id, st ay_id, itemid, valuenum) %>% 
+  select(subject_id, stay_id, itemid, valuenum) %>% 
   pivot_wider(names_from = itemid, values_from = valuenum, 
               names_prefix = "lab_") 
 
@@ -533,10 +546,11 @@ final_labevents <- final_labevent s %>%
     label <- item_to_labname[as.numeric(item)]
     
     # If a label exists, use it; otherwise, prefix with "Unknown"
-    if (is.na(label )) pasteO("Unknown_", item) else label})) 
+    if (is.na(label)) paste0("Unknown_", item) else label
+    })) 
+
 # Check the result 
 # the label and itemid label still seems to be bugged.
-
 head(final_labevents, 10)
 ```
 Hint: Use the Parquet format you generated in Homework 2. For reproducibility, make `labevents_pq` folder available at the current working directory `hw3`, for example, by a symbolic link.

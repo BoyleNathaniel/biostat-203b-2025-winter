@@ -9,3 +9,6 @@
 #Ignore all csv and gz files
 *.csv
 *.gz
+
+#Ignore PQ files
+*_pq
