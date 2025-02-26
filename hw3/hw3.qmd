@@ -51,6 +51,58 @@ awk -F ',' 'NR==1 ||
 $5+0 ~ /^(50912|50971|50983|50902|50882|51221|51301|50931)$/' |\
 cut -d ',' f2,5,7,10 | gzip > labevents_filtered.csv.gz 
 ```
+
+
+```{r}
+#writing the parquetfile
+labevents <- read_csv("labevents_filtered.csv.gz")
+write _parquet (labevent s, "labevent s _pq")
+ds_par <- open_dataset("l abevents_pq") %>%
+  select(subject_id, itemid, char ttime, valuenum) %>% 
+  filter(itemid %in% c(50912,50971,50983,50902,50882, 
+                       51221, 51301, 50931)) %>% 
+  arrange(subject_id, charttime, itemid) 
+labevents_pq <- ds_par %>% collect() 
+print(format(object.size(labevent s_pq), units = 'auto'))
+# display the number of rows
+cat("Number of rows:" , nrow(labevents_pq), "\n") 
+
+# Display the first 10 rows of the dataframe head
+(labevents_pq, 10) 
+```
+
+```{r}
+# Install packages as needed
+
+library(data.table)
+
+# Read the CSV files quickly with fread
+
+admissions_data <- fread("~/mimic/hosp/admissions.csv.gz")
+patients_data <- fread("~/mimic/hosp/patients.csv.gz")
+transfers_data <- fread("~/mimic/hosp/transfers.csv.gz")
+procedures_data <- fread("~/mimic/hosp/procedures_icd.csv.gz")
+diagnoses_data <- fread("~/mimic/hosp/diagnoses_icd.csv.gz") 
+
+# Filter for patient with subject_id 10063848
+patient_id <- 10063848
+
+
+# Filter data for this patient
+patient_info <- patients_data %>%
+  filter(subject_id == patient_id)
+patient_admissions <- admissions_data %>%
+  filter(subject_id == patient_id) 
+patient_transfers <- transfers_data %>%
+  filter(subject_id == patient_id)
+patient_procedures <- procedures_data %>%
+  filter(subject_id == patient_id)
+patient_diagnoses <- diagnoses_data %>%
+  filter(subject_id == patient_id)
+patient_labevents <- labevents_pq %>%
+  filter(subject_id == patient_id) 
+
+```
 Do a similar visualization for the patient with `subject_id` 10063848 using ggplot.
 
 Hint: We need to pull information from data files `patients.csv.gz`, `admissions.csv.gz`, `transfers.csv.gz`, `labevents.csv.gz`, `procedures_icd.csv.gz`, `diagnoses_icd.csv.gz`, `d_icd_procedures.csv.gz`, and `d_icd_diagnoses.csv.gz`. For the big file `labevents.csv.gz`, use the Parquet format you generated in Homework 2. For reproducibility, make the Parquet folder `labevents_pq` available at the current working directory `hw3`, for example, by a symbolic link. Make your code reproducible.
