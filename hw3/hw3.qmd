@@ -11,6 +11,8 @@ format:
     toc-depth: 4
     toc-location: left
     code-fold: false
+execute:
+   eval: false
 ---
 
 Display machine information for reproducibility:
