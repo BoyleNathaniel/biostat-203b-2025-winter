@@ -51,7 +51,7 @@ Do a similar visualization for the patient with `subject_id` 10063848 using ggpl
 zcat ~/mimic/hosp/labevents.csv.gz |\ 
 awk -F ',' 'NR==1 ||
 $5+0 ~ /^(50912|50971|50983|50902|50882|51221|51301|50931)$/' |\
-cut -d ',' f2,5,7,10 | gzip > labevents_filtered.csv.gz 
+cut -d ',' -f2,5,7,10 | gzip > labevents_filtered.csv.gz 
 ```
 
 
@@ -578,6 +578,89 @@ $7+0 ~ /^(220045|220179|220180|223761|220210)$/'|\
 cut -d ',' -f1,6,7,9 | gzip > chartevents_filtered.csv.gz
 ```
 
+
+```{r}
+# writing the parquet file 
+chartevents <- read_csv("chartevents_filtered.csv.gz") 
+write_parquet(chartevents, "chartevents_pq2") 
+ds_chart_par <- open_dataset("chartevents_pq2") %>%
+  select(subject_id, itemid, storetime, valuenum) %>%
+  filter(itemid %in% c (220045,220179,220180, 223761, 220210)) %>%
+  arrange(subject_id, storetime, itemid) 
+chartevents_pq2 <- ds_chart_par %>%
+  collect() 
+rm(chartevents) #clean up, we won't need this later
+
+# Filter the dictionary file with ids we want
+item_ids <- c(220045, 220179, 220180, 223761, 220210)
+
+# Read the dictionary dataset
+d_items <- read_csv("~/mimic/hosp/d_labitems.csv.gz")
+
+# Filter d_items to include only the relevant measurements
+chart_measurements <- d_items %>%
+  filter(itemid %in% item_ids) 
+
+# Now we need to join these datasets 
+chartevents_filtered <- chartevents_pq2 %>%
+  filter(itemid %in% item_ids) %>%
+  left_join(chart_measurements, by = "itemid")
+# Now we want to restrict to last avaliable measurment before
+# ICU stay
+
+# Convert storetime and intime to date-time objects 
+chartevents_filtered <- chartevents_filtered %>% 
+  mutate(storetime = as_datetime(storetime)) 
+icustays_tble <- icustays_tble %>% 
+  mutate(intime = as_datetime(intime))
+
+# Join the labevents with icustays to identify the last
+# measurement before ICU stay 
+final_chart_data <- chartevents_filtered %>% 
+  inner_join(icustays_tble, by = "subject_id") %>% 
+  filter(storetime <= intime) %>%
+  group_by(subject_id, itemid) %>% 
+  filter(storetime == max(storetime)) %>%
+  ungroup()
+
+# Select relevant columns and reshape the data 
+final_chartevents <- final_chart_data %>% 
+  select(subject_id, stay_id, itemid, valuenum) %>% 
+  pivot_wider(names_from = itemid, values_from = valuenum, 
+              names_prefix = "lab_")
+# since there are multiple values of valunum, 
+# pivot_wider will not work, unless 
+# we deal with this, so we will use the avearge 
+# to deal with multiple values. 
+
+final_chart_data_clean <- final_chart_data %>%
+  group_by(subject_id, stay_id, itemid) %>%
+  summarize(valuenum = mean(valuenum, na.rm =TRUE),
+            .groups ="drop")
+
+final_chartevents <- final_chart_data_clean %>%
+  select(subject_id, stay_id, itemid, valuenum) %>%
+  pivot_wider(names_from = itemid, 
+              values_from = valuenum,
+              names_prefix = "lab_") 
+
+# Create a mapping of item_id to lab names 
+item_to_labname <- lab_measurements %>%
+  select(itemid, label) %>%
+  deframe() # Convert to a named vector 
+
+# Rename columns with lab names (map itemid to label) 
+final_chartevents <- final_chartevents %>%
+  rename_with(~ purrr::map_chr(.x, function(item) {
+    label <- item_to_labname[as.numeric(str_remove(item, "lab_"))]
+    if (is.na(label)) paste0("Unknown_", item) else label 
+    })) 
+
+# Check the result 
+# the label and itemid label still seem to be bugged. 
+head(final_chartevents, 10) 
+```
+
 ## Q7. Putting things together
 
 Let us create a tibble `mimic_icu_cohort` for all ICU stays, where rows are all ICU stays of adults (age at `intime` >= 18) and columns contain at least following variables
@@ -590,7 +673,7 @@ Let us create a tibble `mimic_icu_cohort` for all ICU stays, where rows are all 
 
 The final `mimic_icu_cohort` should have one row per ICU stay and columns for each variable.
 
-![](mimic_icu_cohort.png)
+
 
 ## Q8. Exploratory data analysis (EDA)
 
