@@ -2,3 +2,15 @@
 .Rhistory
 .RData
 .Ruserdata
+hw3_Copy.qmd
+
+# Ignore all JSON files
+*.json
+
+#Ignore all csv and gz files
+*.csv
+*.gz
+
+#Ignore PQ files
+*_pq
+*_pq2
