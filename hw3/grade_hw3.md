@@ -1,6 +1,6 @@
 *Nathaniel Boyle*
 
-### Overall Grade: 162/280
+### Overall Grade: 177/280
 
 ### Quality of report: -/10
 
@@ -44,8 +44,8 @@
 	- Missing some rows, need to show final row count (-4)
 - Q6 (26/30) Check the final number of rows and the first few rows of the final data frame.
 	- Missing storetime <= outtime filter, need to show final row count (-4)
-- Q7 (0/30) Check the final number of rows and the first few rows of the final data frame.
-	- Incomplete (-30)
+- Q7 (15/30) Check the final number of rows and the first few rows of the final data frame.
+	- Incorrect. Should be a pipeline of joins. Missing age_at_intime filter (-15)
 - Q8 (0/40) This question is open ended. Any graphical summaries are good. Since this question didn't explicitly ask for explanations, it's fine students don't give them. Students who give insights should be encouraged.
 	- Incomplete (-40)
 ### Usage of Git: 10/10
