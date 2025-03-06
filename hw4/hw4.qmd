@@ -132,7 +132,44 @@ lab_item_ids <- c(50912, 50971, 50983, 50902,
 Connect to `chartevents` table and retrieve a subset that only contain subjects who appear in `icustays_tble` and the chart events listed in HW3. Only keep the first chart events (by `storetime`) during ICU stay and pivot chart events to become variables/columns. Write all steps in _one_ chain of pipes. Similary to HW3, if a vital has multiple measurements at the first `storetime`, average them.
 ```{r}
 # # TODO
-# chartevents_tble <- 
+
+# Define chart item IDs for HW3
+chart_item_ids <- c(50912, 50971, 50983, 50902, 50882, 51221, 51301, 50931)
+
+# # Create chart events table
+chartevents_tble <- tbl(con_bq, "chartevents") |>
+  # Join with icustays_tble on subject_id
+  inner_join(icustays_tble, by = "subject_id") |>
+  
+  # Filter chart events that occur during ICU stay (between intime and outtime)
+  filter(storetime >= intime & storetime <= outtime) |>
+  
+  # Select relevant columns: subject_id, itemid (chart event), storetime, and value (measurement)
+  select(subject_id, itemid, storetime, value) |>
+  
+  
+  # Convert 'value' to numeric (handling any possible conversion errors with NA)
+  mutate(value = as.numeric(value)) |>
+  
+  # Filter for chart events that are in the HW3 list
+  filter(itemid %in% chart_item_ids) |>
+  
+  # Group by subject_id and itemid to handle cases where there are multiple measurements at the same time
+  group_by(subject_id, itemid) |>
+  
+  # Keep only the first measurement for each subject and chart event (earliest storetime)
+  filter(storetime == min(storetime)) |>
+  
+  # If multiple measurements exist at the first storetime, take the average of `value`
+  summarise(value = mean(value, na.rm = TRUE), .groups = "drop") |>
+  
+  # Pivot wider to turn itemid into columns and each column will contain the corresponding value
+  pivot_wider(names_from = itemid, values_from = value) |>
+  
+  # Arrange by subject_id
+  arrange(subject_id) |>
+  
+  print(width = Inf)  # Unlimited columns printed
 ```
 
 ### Q1.7 Put things together
