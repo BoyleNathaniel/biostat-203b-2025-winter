@@ -134,7 +134,7 @@ Connect to `chartevents` table and retrieve a subset that only contain subjects 
 # # TODO
 
 # Define chart item IDs for HW3
-chart_item_ids <- c(50912, 50971, 50983, 50902, 50882, 51221, 51301, 50931)
+chart_item_ids <- c(220045, 220179, 220180, 223761, 220210)
 
 # # Create chart events table
 chartevents_tble <- tbl(con_bq, "chartevents") |>
@@ -177,17 +177,68 @@ chartevents_tble <- tbl(con_bq, "chartevents") |>
 This step is similar to Q7 of HW3. Using _one_ chain of pipes `|>` to perform following data wrangling steps: (i) start with the `icustays_tble`, (ii) merge in admissions and patients tables, (iii) keep adults only (age at ICU intime >= 18), (iv) merge in the labevents and chartevents tables, (v) `collect` the tibble, (vi) sort `subject_id`, `hadm_id`, `stay_id` and `print(width = Inf)`.
 
 ```{r}
-# # TODO
-# mimic_icu_cohort <- 
+ mimic_icu_cohort <- icustays_tble |>
+  
+  # Step (ii) Merge in the admissions and patients tables
+  #inner_join(admissions_tble, by = "hadm_id") |>
+  inner_join(patients_tble, by = "subject_id") |>
+  
+  # Step (iii) Keep adults only (age at ICU intime >= 18)
+  filter(anchor_age >= 18) |>
+  
+  # Step (iv) Merge in the labevents and chartevents tables
+  inner_join(labevents_tble, by = "subject_id") |>
+  inner_join(chartevents_tble, by = "subject_id") |>
+  
+  # Step (v) Collect the tibble (bringing data into R environment)
+  collect() |>
+  
+  # Step (vi) Sort by subject_id, hadm_id, and stay_id
+  arrange(subject_id, hadm_id, stay_id) |>
+  
+  # Print all columns
+  print(width = Inf)
 ```
 
 ### Q1.8 Preprocessing
 
 Perform the following preprocessing steps. (i) Lump infrequent levels into "Other" level for `first_careunit`, `last_careunit`, `admission_type`, `admission_location`, and `discharge_location`. (ii) Collapse the levels of `race` into `ASIAN`, `BLACK`, `HISPANIC`, `WHITE`, and `Other`. (iii) Create a new variable `los_long` that is `TRUE` when `los` is greater than or equal to 2 days. (iv) Summarize the data using `tbl_summary()`, stratified by `los_long`. Hint: `fct_lump_n` and `fct_collapse` from the `forcats` package are useful.
 
-Hint: Below is a numerical summary of my tibble after preprocessing:
+```{r}
+# Load necessary packages
+library(dplyr)
+library(forcats)
+library(gtsummary)
 
-<iframe width=95% height="500" src="./mimic_icu_cohort_gtsummary.html"></iframe>
+
+  # Step (i) Lump infrequent levels into "Other" level for specific columns
+  mutate(mimic_icu_cohort, 
+         first_careunit = fct_lump_n(first_careunit, n = 5, other_level = "Other"),
+         last_careunit = fct_lump_n(last_careunit, n = 5, other_level = "Other"),
+         #admission_type = fct_lump_n(admission_type, n = 5, other_level = "Other"),
+         #admission_location = fct_lump_n(admission_location, n = 5, other_level = "Other"),
+         #discharge_location = fct_lump_n(discharge_location, n = 5, other_level = "Other"),
+  
+    # Step (ii) Collapse the levels of race into specified categories
+    # race = fct_collapse(race,
+    #                     ASIAN = c("Asian"),
+    #                     BLACK = c("Black"),
+    #                     HISPANIC = c("Hispanic"),
+    #                     WHITE = c("White"),
+    #                     Other = c("Other")),
+
+    # Step (iii) Create a new variable `los_long` based on `los`
+    los_long = los >= 2
+  ) |>
+  
+  # Step (iv) Summarize the data using tbl_summary(), stratified by los_long
+  tbl_summary(by = los_long) |>
+  
+  # Print the summary
+  print()
+
+```
+
 
 ### Q1.9 Save the final tibble
 
@@ -213,4 +264,108 @@ Although it is not a good practice to add big data files to Git, for grading pur
 ## Q2. Shiny app
 
 Develop a Shiny app for exploring the ICU cohort data created in Q1. The app should reside in the `mimiciv_shiny` folder. The app should contain at least two tabs. One tab provides easy access to the graphical and numerical summaries of variables (demographics, lab measurements, vitals) in the ICU cohort, using the `mimic_icu_cohort.rds` you curated in Q1. The other tab allows user to choose a specific patient in the cohort and display the patient's ADT and ICU stay information as we did in Q1 of HW3, by dynamically retrieving the patient's ADT and ICU stay information from BigQuery database. Again, do **not** ever add the BigQuery token to your Git repository. If you do so, you will lose 50 points.
+
+```{r}
+#installs
+
+#install.packages("shinydashboard")
+#install.packages('DT')
+
+# Load necessary libraries
+library(shiny)
+library(shinydashboard)
+library(dplyr)
+library(ggplot2)
+library(DT)
+library(gtsummary)
+library(bigrquery)  # Assuming you're using BigQuery to fetch data
+
+# Load the mimic_icu_cohort data (assuming it's saved as .rds file)
+mimic_icu_cohort <- readRDS("mimiciv_shiny/mimic_icu_cohort.rds")
+
+# UI of the app
+ui <- dashboardPage(
+  dashboardHeader(title = "ICU Cohort Data Exploration"),
+  
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Summary", tabName = "summary", icon = icon("dashboard")),
+      menuItem("Patient Info", tabName = "patient_info", icon = icon("user"))
+    )
+  ),
+  
+  dashboardBody(
+    tabItems(
+      
+      # Tab 1: Summary Statistics
+      tabItem(tabName = "summary",
+              fluidRow(
+                box(title = "Numerical Summaries", width = 6, solidHeader = TRUE, status = "primary", 
+                    DTOutput("num_summary")),
+                box(title = "Graphical Summaries", width = 6, solidHeader = TRUE, status = "primary", 
+                    plotOutput("graphical_summary"))
+              )),
+      
+      # Tab 2: Patient Information
+      tabItem(tabName = "patient_info",
+              fluidRow(
+                box(title = "Select Patient", width = 4, solidHeader = TRUE, status = "primary",
+                    selectInput("patient_id", "Choose Patient ID", choices = unique(mimic_icu_cohort$subject_id))
+                ),
+                box(title = "Patient ADT & ICU Stay Info", width = 8, solidHeader = TRUE, status = "primary",
+                    DTOutput("patient_info_table"))
+              ))
+    )
+  )
+)
+
+# Server logic
+server <- function(input, output, session) {
+  
+  # Tab 1: Numerical Summaries using gtsummary
+  output$num_summary <- renderDT({
+    # Summarize the data stratified by the `los_long` variable
+    mimic_icu_cohort %>%
+      tbl_summary(by = los_long) %>%
+      as_gt() %>%
+      as.data.frame() %>%
+      datatable()
+  })
+  
+  # Tab 1: Graphical Summaries
+  output$graphical_summary <- renderPlot({
+    # Example graphical summary for age distribution
+    ggplot(mimic_icu_cohort, aes(x = anchor_age)) +
+      geom_histogram(binwidth = 5, fill = "blue", color = "black") +
+      theme_minimal() +
+      labs(title = "Age Distribution in ICU Cohort", x = "Age", y = "Frequency")
+  })
+  
+  # Tab 2: Display Patient Information from BigQuery
+  output$patient_info_table <- renderDT({
+    req(input$patient_id)  # Ensure the patient_id is selected
+    
+    # Create BigQuery client to query the database
+    # Set up BigQuery authentication (make sure to authenticate with your Google Cloud credentials)
+    bq_project <- "your_project_id"
+    bq_dataset <- "your_dataset_id"
+    bq_table <- "your_table_name"  # Make sure to adjust to your actual table name
+    
+    # Construct the SQL query to get the patient's ADT and ICU stay information
+    query <- sprintf("SELECT * FROM `%s.%s.%s` WHERE subject_id = %d",
+                     bq_project, bq_dataset, bq_table, input$patient_id)
+    
+    # Run the query and fetch the data
+    patient_data <- bq_table_download(bq_project, bq_dataset, bq_table, query)
+    
+    # Return the data as a DataTable
+    datatable(patient_data)
+  })
+}
+
+# Run the app
+shinyApp(ui, server)
+
+
+```
 
