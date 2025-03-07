@@ -147,7 +147,6 @@ chartevents_tble <- tbl(con_bq, "chartevents") |>
   # Select relevant columns: subject_id, itemid (chart event), storetime, and value (measurement)
   select(subject_id, itemid, storetime, value) |>
   
-  
   # Convert 'value' to numeric (handling any possible conversion errors with NA)
   mutate(value = as.numeric(value)) |>
   
@@ -177,27 +176,32 @@ chartevents_tble <- tbl(con_bq, "chartevents") |>
 This step is similar to Q7 of HW3. Using _one_ chain of pipes `|>` to perform following data wrangling steps: (i) start with the `icustays_tble`, (ii) merge in admissions and patients tables, (iii) keep adults only (age at ICU intime >= 18), (iv) merge in the labevents and chartevents tables, (v) `collect` the tibble, (vi) sort `subject_id`, `hadm_id`, `stay_id` and `print(width = Inf)`.
 
 ```{r}
+#There are 4 million rows, this is too many
  mimic_icu_cohort <- icustays_tble |>
   
   # Step (ii) Merge in the admissions and patients tables
-  #inner_join(admissions_tble, by = "hadm_id") |>
-  inner_join(patients_tble, by = "subject_id") |>
+  inner_join(admissions_tble, by = c("subject_id", "hadm_id")) |>
+  inner_join(patients_tble, by = c("subject_id")) |>
+  
+  #select(-hadm_id_y) |> #remove duplicate column
+  #rename(hadm_id = hadm_id_x) |> #rename hadm_id column
   
   # Step (iii) Keep adults only (age at ICU intime >= 18)
   filter(anchor_age >= 18) |>
   
   # Step (iv) Merge in the labevents and chartevents tables
-  inner_join(labevents_tble, by = "subject_id") |>
-  inner_join(chartevents_tble, by = "subject_id") |>
+  inner_join(labevents_tble, by = c("subject_id")) |>
+  inner_join(chartevents_tble, by = c("subject_id") |>
   
   # Step (v) Collect the tibble (bringing data into R environment)
   collect() |>
-  
   # Step (vi) Sort by subject_id, hadm_id, and stay_id
   arrange(subject_id, hadm_id, stay_id) |>
   
   # Print all columns
   print(width = Inf)
+  #print(unique(mimic_icu_cohort$race))
+
 ```
 
 ### Q1.8 Preprocessing
@@ -215,21 +219,31 @@ library(gtsummary)
   mutate(mimic_icu_cohort, 
          first_careunit = fct_lump_n(first_careunit, n = 5, other_level = "Other"),
          last_careunit = fct_lump_n(last_careunit, n = 5, other_level = "Other"),
-         #admission_type = fct_lump_n(admission_type, n = 5, other_level = "Other"),
-         #admission_location = fct_lump_n(admission_location, n = 5, other_level = "Other"),
-         #discharge_location = fct_lump_n(discharge_location, n = 5, other_level = "Other"),
+         admission_type = fct_lump_n(admission_type, n = 5, other_level = "Other"),
+         admission_location = fct_lump_n(admission_location, n = 5, other_level = "Other"),
+         discharge_location = fct_lump_n(discharge_location, n = 5, other_level = "Other"),
   
     # Step (ii) Collapse the levels of race into specified categories
-    # race = fct_collapse(race,
-    #                     ASIAN = c("Asian"),
-    #                     BLACK = c("Black"),
-    #                     HISPANIC = c("Hispanic"),
-    #                     WHITE = c("White"),
-    #                     Other = c("Other")),
+     race = fct_collapse(race,
+                    ASIAN = c("ASIAN - SOUTH EAST ASIAN", "ASIAN", "ASIAN - CHINESE", 
+                              "ASIAN - KOREAN", "ASIAN - ASIAN INDIAN"),
+                    BLACK = c("BLACK/AFRICAN AMERICAN", "BLACK/CAPE VERDEAN", "BLACK/AFRICAN", 
+                              "BLACK/CARIBBEAN ISLAND"),
+                    HISPANIC = c("HISPANIC/LATINO - SALVADORAN", "HISPANIC/LATINO - PUERTO RICAN", 
+                                 "HISPANIC/LATINO - GUATEMALAN", "HISPANIC/LATINO - CUBAN", 
+                                 "HISPANIC/LATINO - DOMINICAN", "HISPANIC/LATINO - CENTRAL AMERICAN", 
+                                 "HISPANIC/LATINO - HONDURAN", "HISPANIC/LATINO - COLUMBIAN", 
+                                 "HISPANIC/LATINO - MEXICAN", "HISPANIC OR LATINO"),
+                    WHITE = c("WHITE", "WHITE - RUSSIAN", "WHITE - OTHER EUROPEAN", "WHITE - BRAZILIAN", 
+                              "WHITE - EASTERN EUROPEAN"),
+                    Other = c("OTHER", "UNKNOWN", "UNABLE TO OBTAIN", "PATIENT DECLINED TO ANSWER", 
+                              "SOUTH AMERICAN", "MULTIPLE RACE/ETHNICITY", 
+                              "AMERICAN INDIAN/ALASKA NATIVE", "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER")),
+
 
     # Step (iii) Create a new variable `los_long` based on `los`
     los_long = los >= 2
-  ) |>
+) |>
   
   # Step (iv) Summarize the data using tbl_summary(), stratified by los_long
   tbl_summary(by = los_long) |>
