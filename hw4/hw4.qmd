@@ -133,7 +133,6 @@ lab_item_ids <- c(50912, 50971, 50983, 50902,
 
 Connect to `chartevents` table and retrieve a subset that only contain subjects who appear in `icustays_tble` and the chart events listed in HW3. Only keep the first chart events (by `storetime`) during ICU stay and pivot chart events to become variables/columns. Write all steps in _one_ chain of pipes. Similary to HW3, if a vital has multiple measurements at the first `storetime`, average them.
 ```{r}
-# # TODO
 
 # Define chart item IDs for HW3
 chart_item_ids <- c(220045, 220179, 220180, 223761, 220210)
@@ -178,29 +177,60 @@ chartevents_tble <- tbl(con_bq, "chartevents") |>
 This step is similar to Q7 of HW3. Using _one_ chain of pipes `|>` to perform following data wrangling steps: (i) start with the `icustays_tble`, (ii) merge in admissions and patients tables, (iii) keep adults only (age at ICU intime >= 18), (iv) merge in the labevents and chartevents tables, (v) `collect` the tibble, (vi) sort `subject_id`, `hadm_id`, `stay_id` and `print(width = Inf)`.
 
 ```{r}
-#create our icu_cohort, start with icustays_tble
- mimic_icu_cohort <- icustays_tble |>
-  
-  # Merge in the admissions and patients tables
-  inner_join(admissions_tble, by = c("subject_id", "hadm_id")) |>
-  inner_join(patients_tble, by = c("subject_id")) |>
-  
-  # Keep adults only
-  mutate (age = as.integer(anchor_age + (year(intime) - anchor_year))) |>
-  filter(age >= 18) |>
-  
-  # Step (iv) Merge in the labevents and chartevents tables
-  inner_join(labevents_tble, by = c("subject_id")) |>
-  inner_join(chartevents_tble, by = c("subject_id")) |>
-  
-  # Step (v) Collect the tibble (bringing data into R environment)
-  collect() |>
-  # Step (vi) Sort by subject_id, hadm_id, and stay_id
-  arrange(subject_id, hadm_id, stay_id) |>
-  
-  # Print all columns
+# #create our icu_cohort, start with icustays_tble
+#  mimic_icu_cohort <- icustays_tble |>
+#   
+#   # Merge in the admissions and patients tables
+#   inner_join(admissions_tble, by = c("subject_id", "hadm_id")) |>
+#   inner_join(patients_tble, by = c("subject_id")) |>
+#   
+#   # Keep adults only
+#   mutate (age = as.integer(anchor_age + (year(intime) - anchor_year))) |>
+#   filter(age >= 18) |>
+#   
+#   # Step (iv) Merge in the labevents and chartevents tables
+#   inner_join(labevents_tble, by = c("subject_id")) |>
+#   inner_join(chartevents_tble, by = c("subject_id")) |>
+#   
+#   # Step (v) Collect the tibble (bringing data into R environment)
+#   collect() |>
+#   # Step (vi) Sort by subject_id, hadm_id, and stay_id
+#   arrange(subject_id, hadm_id, stay_id) |>
+#   
+#   # Print all columns
+#   print(width = Inf)
+
+
+# ✅ Aggregate labevents at hadm_id level before joining
+labevents_tble <- tbl(con_bq, "labevents") |>  
+  group_by(subject_id, hadm_id) |>  
+  summarise(valuenum_avg = mean(valuenum, na.rm = TRUE), .groups = "drop")
+
+# ✅ Aggregate chartevents at stay_id level before joining
+chartevents_tble <- tbl(con_bq, "chartevents") |>  
+  group_by(subject_id, stay_id) |>  
+  summarise(valuenum_avg = mean(valuenum, na.rm = TRUE), .groups = "drop")
+
+# ✅ Main Cohort Pipeline
+mimic_icu_cohort <- icustays_tble |>  
+  # Merge with admissions table
+  inner_join(tbl(con_bq, "admissions"), by = c("subject_id", "hadm_id")) |>  
+  # Merge with patients table
+  inner_join(tbl(con_bq, "patients"), by = "subject_id") |>  
+  # Correct way to calculate age in MIMIC-IV
+  mutate(age = as.integer(anchor_age + (year(intime) - anchor_year))) |>  
+  filter(age >= 18) |>  # Keep only adults
+  # ✅ Merge with summarized labevents (Avoids explosion of rows)
+  inner_join(labevents_tble, by = c("subject_id", "hadm_id")) |>  
+  # ✅ Merge with summarized chartevents (Avoids explosion of rows)
+  inner_join(chartevents_tble, by = c("subject_id", "stay_id")) |>  
+  # ✅ Collect at the very end (Prevents unnecessary memory usage)
+  collect() |>  
+  # ✅ Remove duplicates (Keeps only one row per subject_id + hadm_id + stay_id)
+  distinct(subject_id, hadm_id, stay_id, .keep_all = TRUE) |>  
+  # ✅ Sort the final dataset
+  arrange(subject_id, hadm_id, stay_id) |>  
   print(width = Inf)
-  #print(unique(mimic_icu_cohort$race))
 
 ```
 
@@ -217,7 +247,8 @@ library(gtsummary)
 
   # Step (i) Lump infrequent levels into "Other" level for specific columns
   # we take the top 5 most frequent values, rest are lumped into "other"
-  mutate(mimic_icu_cohort, 
+  mutate(mimic_icu_cohort,
+         
          first_careunit = fct_lump_n(first_careunit, n = 5,
                                      other_level = "Other"),
          last_careunit = fct_lump_n(last_careunit, n = 5,
@@ -259,8 +290,7 @@ library(gtsummary)
                               "MULTIPLE RACE/ETHNICITY", 
                               "AMERICAN INDIAN/ALASKA NATIVE",
                               "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER")),
-
-
+    
     # Step (iii) Create a new variable `los_long` based on `los`
     los_long = los >= 2
 ) |>
@@ -270,8 +300,48 @@ library(gtsummary)
   
   # Print the summary
   print()
+```
+
+```{r}
+#test block
+
+library(dplyr)
+library(lubridate)  
+
+# ✅ Aggregate labevents at hadm_id level before joining
+labevents_tble <- tbl(con_bq, "labevents") |>  
+  group_by(subject_id, hadm_id) |>  
+  summarise(valuenum_avg = mean(valuenum, na.rm = TRUE), .groups = "drop")
+
+# ✅ Aggregate chartevents at stay_id level before joining
+chartevents_tble <- tbl(con_bq, "chartevents") |>  
+  group_by(subject_id, stay_id) |>  
+  summarise(valuenum_avg = mean(valuenum, na.rm = TRUE), .groups = "drop")
+
+# ✅ Main Cohort Pipeline
+mimic_icu_cohort <- icustays_tble |>  
+  # Merge with admissions table
+  inner_join(tbl(con_bq, "admissions"), by = c("subject_id", "hadm_id")) |>  
+  # Merge with patients table
+  inner_join(tbl(con_bq, "patients"), by = "subject_id") |>  
+  # Correct way to calculate age in MIMIC-IV
+  mutate(age = as.integer(anchor_age + (year(intime) - anchor_year))) |>  
+  filter(age >= 18) |>  # Keep only adults
+  # ✅ Merge with summarized labevents (Avoids explosion of rows)
+  inner_join(labevents_tble, by = c("subject_id", "hadm_id")) |>  
+  # ✅ Merge with summarized chartevents (Avoids explosion of rows)
+  inner_join(chartevents_tble, by = c("subject_id", "stay_id")) |>  
+  # ✅ Collect at the very end (Prevents unnecessary memory usage)
+  collect() |>  
+  # ✅ Remove duplicates (Keeps only one row per subject_id + hadm_id + stay_id)
+  distinct(subject_id, hadm_id, stay_id, .keep_all = TRUE) |>  
+  # ✅ Sort the final dataset
+  arrange(subject_id, hadm_id, stay_id) |>  
+  print(width = Inf)
+
 
 ```
+
 
 
 ### Q1.9 Save the final tibble
@@ -304,13 +374,14 @@ Develop a Shiny app for exploring the ICU cohort data created in Q1. The app sho
 
 #install.packages("shinydashboard")
 #install.packages('DT')
-
+#install.packages("gt")
 # Load necessary libraries
 library(shiny)
 library(shinydashboard)
 library(dplyr)
 library(ggplot2)
 library(DT)
+library(gt)
 library(gtsummary)
 library(bigrquery)
 
@@ -335,7 +406,7 @@ ui <- dashboardPage(
       tabItem(tabName = "summary",
               fluidRow(
                 box(title = "Numerical Summaries", width = 6, solidHeader = TRUE, status = "primary", 
-                    DTOutput("num_summary")),
+                    gt_output("num_summary")),
                 box(title = "Graphical Summaries", width = 6, solidHeader = TRUE, status = "primary", 
                     plotOutput("graphical_summary"))
               )),
@@ -357,12 +428,11 @@ ui <- dashboardPage(
 server <- function(input, output, session) {
   
   # Tab 1: Numerical Summaries using gtsummary
-  output$num_summary <- renderDT({
+  output$num_summary <- render_gt({
     # Summarize the data stratified by the `los_long` variable
     mimic_icu_cohort %>%
       tbl_summary(by = los_long) %>%
-      as_gt() %>%
-      as.data.frame() %>%
+      as_gt() %>% 
       datatable()
   })
   
