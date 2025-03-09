@@ -302,47 +302,6 @@ library(gtsummary)
   print()
 ```
 
-```{r}
-#test block
-
-library(dplyr)
-library(lubridate)  
-
-# ✅ Aggregate labevents at hadm_id level before joining
-labevents_tble <- tbl(con_bq, "labevents") |>  
-  group_by(subject_id, hadm_id) |>  
-  summarise(valuenum_avg = mean(valuenum, na.rm = TRUE), .groups = "drop")
-
-# ✅ Aggregate chartevents at stay_id level before joining
-chartevents_tble <- tbl(con_bq, "chartevents") |>  
-  group_by(subject_id, stay_id) |>  
-  summarise(valuenum_avg = mean(valuenum, na.rm = TRUE), .groups = "drop")
-
-# ✅ Main Cohort Pipeline
-mimic_icu_cohort <- icustays_tble |>  
-  # Merge with admissions table
-  inner_join(tbl(con_bq, "admissions"), by = c("subject_id", "hadm_id")) |>  
-  # Merge with patients table
-  inner_join(tbl(con_bq, "patients"), by = "subject_id") |>  
-  # Correct way to calculate age in MIMIC-IV
-  mutate(age = as.integer(anchor_age + (year(intime) - anchor_year))) |>  
-  filter(age >= 18) |>  # Keep only adults
-  # ✅ Merge with summarized labevents (Avoids explosion of rows)
-  inner_join(labevents_tble, by = c("subject_id", "hadm_id")) |>  
-  # ✅ Merge with summarized chartevents (Avoids explosion of rows)
-  inner_join(chartevents_tble, by = c("subject_id", "stay_id")) |>  
-  # ✅ Collect at the very end (Prevents unnecessary memory usage)
-  collect() |>  
-  # ✅ Remove duplicates (Keeps only one row per subject_id + hadm_id + stay_id)
-  distinct(subject_id, hadm_id, stay_id, .keep_all = TRUE) |>  
-  # ✅ Sort the final dataset
-  arrange(subject_id, hadm_id, stay_id) |>  
-  print(width = Inf)
-
-
-```
-
-
 
 ### Q1.9 Save the final tibble
 
@@ -405,19 +364,32 @@ ui <- dashboardPage(
       # Tab 1: Summary Statistics
       tabItem(tabName = "summary",
               fluidRow(
-                box(title = "Numerical Summaries", width = 6, solidHeader = TRUE, status = "primary", 
-                    gt_output("num_summary")),
-                box(title = "Graphical Summaries", width = 6, solidHeader = TRUE, status = "primary", 
-                    plotOutput("graphical_summary"))
+                box(title = "Select Variable for Bar Plot",
+                    width = 4, solidHeader = TRUE, status = "info",
+                    selectInput("barplot_var", "Choose Variable for Bar Plot",
+                                choices = c("Insurance" = "insurance",
+                                            "Marital Status" = "marital_status",
+                                            "Race" = "race",
+                                            "Gender" = "gender"
+                                            )
+                                )
+                ),
+                box(title = "Bar Plot Summary",
+                    width = 8, solidHeader = TRUE, status = "primary", 
+                    plotOutput("barplot_summary"))
               )),
       
       # Tab 2: Patient Information
       tabItem(tabName = "patient_info",
               fluidRow(
-                box(title = "Select Patient", width = 4, solidHeader = TRUE, status = "primary",
-                    selectInput("patient_id", "Choose Patient ID", choices = unique(mimic_icu_cohort$subject_id))
+                box(title = "Enter Patient ID",
+                    width = 4, solidHeader = TRUE, status = "primary",
+                    selectInput("patient_id",
+                                "Choose Patient ID",
+                                choices = unique(mimic_icu_cohort$subject_id))
                 ),
-                box(title = "Patient ADT & ICU Stay Info", width = 8, solidHeader = TRUE, status = "primary",
+                box(title = "Patient ADT & ICU Stay Info",
+                    width = 8, solidHeader = TRUE, status = "primary",
                     DTOutput("patient_info_table"))
               ))
     )
@@ -436,13 +408,24 @@ server <- function(input, output, session) {
       datatable()
   })
   
-  # Tab 1: Graphical Summaries
-  output$graphical_summary <- renderPlot({
-    # Example graphical summary for age distribution
-    ggplot(mimic_icu_cohort, aes(x = anchor_age)) +
-      geom_histogram(binwidth = 5, fill = "blue", color = "black") +
+  # Tab 1: Bar Plot Summary based on selected variable
+  output$barplot_summary <- renderPlot({
+    req(input$barplot_var)  # Ensure that a variable is selected
+    
+    # Select the appropriate variable based on input
+    var_name <- input$barplot_var
+    plot_data <- mimic_icu_cohort %>%
+      count(!!sym(var_name)) %>%
+      rename(Variable = !!sym(var_name), Count = n)
+    
+    # Generate the bar plot
+    ggplot(plot_data, aes(x = Variable, y = Count, fill = Variable)) +
+      geom_bar(stat = "identity", color = "black") + # Unique fill color
+      # print count above bar plot
+      geom_text(aes(label = Count), vjust = -0.5, size = 4) +  
       theme_minimal() +
-      labs(title = "Age Distribution in ICU Cohort", x = "Age", y = "Frequency")
+      labs(title = paste(var_name, "Summary"), x = var_name, y = "Count") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
   })
   
   # Tab 2: Display Patient Information from BigQuery
@@ -451,13 +434,13 @@ server <- function(input, output, session) {
     
     # Create BigQuery client to query the database
     # Set up BigQuery authentication (make sure to authenticate with your Google Cloud credentials)
-    bq_project <- "your_project_id"
-    bq_dataset <- "your_dataset_id"
-    bq_table <- "your_table_name"  # Make sure to adjust to your actual table name
+    bq_project <- "biostat-203b-2025-winter"
+    bq_dataset <- "mimiciv_3_1"
+    bq_table <- "mimic_icu_cohort"  # Make sure to adjust to your actual table name
     
     # Construct the SQL query to get the patient's ADT and ICU stay information
-    query <- sprintf("SELECT * FROM `%s.%s.%s` WHERE subject_id = %d",
-                     bq_project, bq_dataset, bq_table, input$patient_id)
+    query <- sprintf("SELECT * FROM `%s.%s.%s` WHERE subject_id = '%s'",
+                 bq_project, bq_dataset, bq_table, input$patient_id)
     
     # Run the query and fetch the data
     patient_data <- bq_table_download(bq_project, bq_dataset, bq_table, query)
@@ -469,6 +452,7 @@ server <- function(input, output, session) {
 
 # Run the app
 shinyApp(ui, server)
+
 
 
 ```
