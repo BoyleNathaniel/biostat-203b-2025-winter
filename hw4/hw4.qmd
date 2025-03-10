@@ -134,7 +134,7 @@ lab_item_ids <- c(50912, 50971, 50983, 50902,
 Connect to `chartevents` table and retrieve a subset that only contain subjects who appear in `icustays_tble` and the chart events listed in HW3. Only keep the first chart events (by `storetime`) during ICU stay and pivot chart events to become variables/columns. Write all steps in _one_ chain of pipes. Similary to HW3, if a vital has multiple measurements at the first `storetime`, average them.
 ```{r}
 
-# Define chart item IDs for HW3
+# Define chart item IDs from HW3
 chart_item_ids <- c(220045, 220179, 220180, 223761, 220210)
 
 # # Create chart events table
@@ -145,7 +145,7 @@ chartevents_tble <- tbl(con_bq, "chartevents") |>
   # Filter chart events that occur during ICU stay (between intime and outtime)
   filter(storetime >= intime & storetime <= outtime) |>
   
-  # Select relevant columns: subject_id, itemid (chart event), storetime, and value (measurement)
+  # Select relevant columns:
   select(subject_id, itemid, storetime, value) |>
   
   # Convert 'value' to numeric (handling any possible conversion errors with NA)
@@ -154,16 +154,20 @@ chartevents_tble <- tbl(con_bq, "chartevents") |>
   # Filter for chart events that are in the HW3 list
   filter(itemid %in% chart_item_ids) |>
   
-  # Group by subject_id and itemid to handle cases where there are multiple measurements at the same time
+  # Group by subject_id and itemid to handle cases 
+  # where there are multiple measurements at the same time
   group_by(subject_id, itemid) |>
   
-  # Keep only the first measurement for each subject and chart event (earliest storetime)
+  # Keep only the first measurement for each subject 
+  # and chart event (earliest storetime)
   filter(storetime == min(storetime)) |>
   
-  # If multiple measurements exist at the first storetime, take the average of `value`
+  # If multiple measurements exist at the first 
+  # storetime, take the average of `value`
   summarise(value = mean(value, na.rm = TRUE), .groups = "drop") |>
   
-  # Pivot wider to turn itemid into columns and each column will contain the corresponding value
+  # Pivot wider to turn itemid into columns and
+  # each column will contain the corresponding value
   pivot_wider(names_from = itemid, values_from = value) |>
   
   # Arrange by subject_id
@@ -177,9 +181,7 @@ chartevents_tble <- tbl(con_bq, "chartevents") |>
 This step is similar to Q7 of HW3. Using _one_ chain of pipes `|>` to perform following data wrangling steps: (i) start with the `icustays_tble`, (ii) merge in admissions and patients tables, (iii) keep adults only (age at ICU intime >= 18), (iv) merge in the labevents and chartevents tables, (v) `collect` the tibble, (vi) sort `subject_id`, `hadm_id`, `stay_id` and `print(width = Inf)`.
 
 ```{r}
-# #create our icu_cohort, start with icustays_tble
-
-# Aggregate labevents at hadm_id level before joining
+# aggregate labevents at hadm_id level before joining
 labevents_tble <- tbl(con_bq, "labevents") |>  
   group_by(subject_id, hadm_id) |>  
   summarise(valuenum_avg = mean(valuenum, na.rm = TRUE), .groups = "drop")
@@ -189,7 +191,7 @@ chartevents_tble <- tbl(con_bq, "chartevents") |>
   group_by(subject_id, stay_id) |>  
   summarise(valuenum_avg = mean(valuenum, na.rm = TRUE), .groups = "drop")
 
-# Main Cohort Pipeline
+# create mimic cohort 
 mimic_icu_cohort <- icustays_tble |>  
   # Merge with admissions table
   inner_join(tbl(con_bq, "admissions"), by = c("subject_id", "hadm_id")) |>  
@@ -352,11 +354,13 @@ ui <- dashboardPage(
                                             "Gender" = "gender"
                                             )
                                 )
-                ),
+                  ),
                 box(title = "Bar Plot Summary",
                     width = 8, solidHeader = TRUE, status = "primary", 
-                    plotOutput("barplot_summary"))
-              )),
+                    plotOutput("barplot_summary")
+                    )
+                      )
+              ),
       
       # Tab 2: Patient Information
       tabItem(tabName = "patient_info",
@@ -366,15 +370,14 @@ ui <- dashboardPage(
               selectInput("patient_id",
                           "Choose Patient ID",
                           choices = unique(mimic_icu_cohort$subject_id))
-          ),
-          
+            ),
           box(title = "Patient ADT",
               width = 8, solidHeader = TRUE, status = "primary",
               plotOutput("patient_plot"))  # Render the plot here
-        )
-)
-  )
+                )
+              )
           )
+            )
 )
 
 
@@ -456,14 +459,13 @@ server <- function(input, output, session) {
                                     "Other" = "gray"),
                          name = "Care Unit") +
       scale_size_continuous(range = c(1, 3)) +
-      scale_shape_manual(values = c("ADT" = 16)) +  # Circle shape for ADT events
+        # Circle shape for ADT events
+      scale_shape_manual(values = c("ADT" = 16)) +  
       labs(title = plot_title,
            x = "Calendar Time", y = "Event Type",
            color = "Care Unit", size = "ICU/CCU Size") +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
-      
-    
     }
 )}
 
