@@ -310,6 +310,8 @@ Develop a Shiny app for exploring the ICU cohort data created in Q1. The app sho
 
 
 ```{r}
+#Shiny app code
+
 #installs
 
 #install.packages("shinydashboard")
@@ -473,5 +475,3 @@ server <- function(input, output, session) {
 shinyApp(ui, server)
 
 ```
-```
-
