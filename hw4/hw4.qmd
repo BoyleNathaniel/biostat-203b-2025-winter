@@ -104,6 +104,8 @@ lab_item_ids <- c(50912, 50971, 50983, 50902,
 
 # create labevents table
  labevents_tble <- tbl(con_bq, "labevents") |>
+   # we only want subject_id, item_id, storetime, valuenum
+   select(subject_id, itemid, storetime, valuenum) |>
     # Join with icustays_tble on subject_id
   inner_join(icustays_tble, by = "subject_id") |>
    
@@ -131,8 +133,47 @@ lab_item_ids <- c(50912, 50971, 50983, 50902,
 
 Connect to `chartevents` table and retrieve a subset that only contain subjects who appear in `icustays_tble` and the chart events listed in HW3. Only keep the first chart events (by `storetime`) during ICU stay and pivot chart events to become variables/columns. Write all steps in _one_ chain of pipes. Similary to HW3, if a vital has multiple measurements at the first `storetime`, average them.
 ```{r}
-# # TODO
-# chartevents_tble <- 
+
+# Define chart item IDs from HW3
+chart_item_ids <- c(220045, 220179, 220180, 223761, 220210)
+
+# # Create chart events table
+chartevents_tble <- tbl(con_bq, "chartevents") |>
+  # Join with icustays_tble on subject_id
+  inner_join(icustays_tble, by = "subject_id") |>
+  
+  # Filter chart events that occur during ICU stay (between intime and outtime)
+  filter(storetime >= intime & storetime <= outtime) |>
+  
+  # Select relevant columns:
+  select(subject_id, itemid, storetime, value) |>
+  
+  # Convert 'value' to numeric (handling any possible conversion errors with NA)
+  mutate(value = as.numeric(value)) |>
+  
+  # Filter for chart events that are in the HW3 list
+  filter(itemid %in% chart_item_ids) |>
+  
+  # Group by subject_id and itemid to handle cases 
+  # where there are multiple measurements at the same time
+  group_by(subject_id, itemid) |>
+  
+  # Keep only the first measurement for each subject 
+  # and chart event (earliest storetime)
+  filter(storetime == min(storetime)) |>
+  
+  # If multiple measurements exist at the first 
+  # storetime, take the average of `value`
+  summarise(value = mean(value, na.rm = TRUE), .groups = "drop") |>
+  
+  # Pivot wider to turn itemid into columns and
+  # each column will contain the corresponding value
+  pivot_wider(names_from = itemid, values_from = value) |>
+  
+  # Arrange by subject_id
+  arrange(subject_id) |>
+  
+  print(width = Inf)  # Unlimited columns printed
 ```
 
 ### Q1.7 Put things together
@@ -140,17 +181,107 @@ Connect to `chartevents` table and retrieve a subset that only contain subjects 
 This step is similar to Q7 of HW3. Using _one_ chain of pipes `|>` to perform following data wrangling steps: (i) start with the `icustays_tble`, (ii) merge in admissions and patients tables, (iii) keep adults only (age at ICU intime >= 18), (iv) merge in the labevents and chartevents tables, (v) `collect` the tibble, (vi) sort `subject_id`, `hadm_id`, `stay_id` and `print(width = Inf)`.
 
 ```{r}
-# # TODO
-# mimic_icu_cohort <- 
+# aggregate labevents at hadm_id level before joining
+labevents_tble <- tbl(con_bq, "labevents") |>  
+  group_by(subject_id, hadm_id) |>  
+  summarise(valuenum_avg = mean(valuenum, na.rm = TRUE), .groups = "drop")
+
+# Aggregate chartevents at stay_id level before joining
+chartevents_tble <- tbl(con_bq, "chartevents") |>  
+  group_by(subject_id, stay_id) |>  
+  summarise(valuenum_avg = mean(valuenum, na.rm = TRUE), .groups = "drop")
+
+# create mimic cohort 
+mimic_icu_cohort <- icustays_tble |>  
+  # Merge with admissions table
+  inner_join(tbl(con_bq, "admissions"), by = c("subject_id", "hadm_id")) |>  
+  # Merge with patients table
+  inner_join(tbl(con_bq, "patients"), by = "subject_id") |>  
+  # Correct way to calculate age in MIMIC-IV
+  mutate(age = as.integer(anchor_age + (year(intime) - anchor_year))) |>  
+  filter(age >= 18) |>  # Keep only adults
+  # Merge with summarized labevents (Avoids explosion of rows)
+  inner_join(labevents_tble, by = c("subject_id", "hadm_id")) |>  
+  # Merge with summarized chartevents (Avoids explosion of rows)
+  inner_join(chartevents_tble, by = c("subject_id", "stay_id")) |>  
+  # Collect at the very end (Prevents unnecessary memory usage)
+  collect() |>  
+  # Remove duplicates (Keeps only one row per subject_id + hadm_id + stay_id)
+  distinct(subject_id, hadm_id, stay_id, .keep_all = TRUE) |>  
+  # Sort the final dataset
+  arrange(subject_id, hadm_id, stay_id) |>  
+  print(width = Inf)
+
 ```
 
 ### Q1.8 Preprocessing
 
 Perform the following preprocessing steps. (i) Lump infrequent levels into "Other" level for `first_careunit`, `last_careunit`, `admission_type`, `admission_location`, and `discharge_location`. (ii) Collapse the levels of `race` into `ASIAN`, `BLACK`, `HISPANIC`, `WHITE`, and `Other`. (iii) Create a new variable `los_long` that is `TRUE` when `los` is greater than or equal to 2 days. (iv) Summarize the data using `tbl_summary()`, stratified by `los_long`. Hint: `fct_lump_n` and `fct_collapse` from the `forcats` package are useful.
 
-Hint: Below is a numerical summary of my tibble after preprocessing:
+```{r}
+# Load necessary packages
+library(dplyr)
+library(forcats)
+library(gtsummary)
 
-<iframe width=95% height="500" src="./mimic_icu_cohort_gtsummary.html"></iframe>
+
+  # Step (i) Lump infrequent levels into "Other" level for specific columns
+  # we take the top 5 most frequent values, rest are lumped into "other"
+  mutate(mimic_icu_cohort,
+         
+         first_careunit = fct_lump_n(first_careunit, n = 5,
+                                     other_level = "Other"),
+         last_careunit = fct_lump_n(last_careunit, n = 5,
+                                    other_level = "Other"),
+         admission_type = fct_lump_n(admission_type, n = 5,
+                                     other_level = "Other"),
+         admission_location = fct_lump_n(admission_location, n = 5,
+                                         other_level = "Other"),
+         discharge_location = fct_lump_n(discharge_location, n = 5,
+                                         other_level = "Other"),
+  
+    # Step (ii) Collapse the levels of race into specified categories
+     race = fct_collapse(race,
+                    ASIAN = c("ASIAN - SOUTH EAST ASIAN",
+                              "ASIAN", "ASIAN - CHINESE", 
+                              "ASIAN - KOREAN",
+                              "ASIAN - ASIAN INDIAN"),
+                    BLACK = c("BLACK/AFRICAN AMERICAN",
+                              "BLACK/CAPE VERDEAN",
+                              "BLACK/AFRICAN",
+                              "BLACK/CARIBBEAN ISLAND"),
+                    HISPANIC = c("HISPANIC/LATINO - SALVADORAN",
+                                 "HISPANIC/LATINO - PUERTO RICAN", 
+                                 "HISPANIC/LATINO - GUATEMALAN",
+                                 "HISPANIC/LATINO - CUBAN", 
+                                 "HISPANIC/LATINO - DOMINICAN",
+                                 "HISPANIC/LATINO - CENTRAL AMERICAN", 
+                                 "HISPANIC/LATINO - HONDURAN",
+                                 "HISPANIC/LATINO - COLUMBIAN", 
+                                 "HISPANIC/LATINO - MEXICAN",
+                                 "HISPANIC OR LATINO"),
+                    WHITE = c("WHITE", "WHITE - RUSSIAN",
+                              "WHITE - OTHER EUROPEAN",
+                              "WHITE - BRAZILIAN", 
+                              "WHITE - EASTERN EUROPEAN"),
+                    Other = c("OTHER", "UNKNOWN", "UNABLE TO OBTAIN",
+                              "PATIENT DECLINED TO ANSWER", 
+                              "SOUTH AMERICAN",
+                              "MULTIPLE RACE/ETHNICITY", 
+                              "AMERICAN INDIAN/ALASKA NATIVE",
+                              "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER")),
+    
+    # Step (iii) Create a new variable `los_long` based on `los`
+    los_long = los >= 2
+) |>
+  
+  # Step (iv) Summarize the data using tbl_summary(), stratified by los_long
+  tbl_summary(by = c(los_long)) |>
+  
+  # Print the summary
+  print()
+```
+
 
 ### Q1.9 Save the final tibble
 
@@ -177,3 +308,170 @@ Although it is not a good practice to add big data files to Git, for grading pur
 
 Develop a Shiny app for exploring the ICU cohort data created in Q1. The app should reside in the `mimiciv_shiny` folder. The app should contain at least two tabs. One tab provides easy access to the graphical and numerical summaries of variables (demographics, lab measurements, vitals) in the ICU cohort, using the `mimic_icu_cohort.rds` you curated in Q1. The other tab allows user to choose a specific patient in the cohort and display the patient's ADT and ICU stay information as we did in Q1 of HW3, by dynamically retrieving the patient's ADT and ICU stay information from BigQuery database. Again, do **not** ever add the BigQuery token to your Git repository. If you do so, you will lose 50 points.
 
+
+```{r}
+#Shiny app code
+
+#installs
+
+#install.packages("shinydashboard")
+#install.packages('DT')
+#install.packages("gt")
+# Load necessary libraries
+library(shiny)
+library(shinydashboard)
+library(dplyr)
+library(ggplot2)
+library(DT)
+library(gt)
+library(gtsummary)
+library(bigrquery)
+
+# Load the mimic_icu_cohort data (assuming it's saved as .rds file)
+mimic_icu_cohort <- readRDS("mimiciv_shiny/mimic_icu_cohort.rds")
+
+# UI of the app
+ui <- dashboardPage(
+  dashboardHeader(title = "ICU Cohort Data Exploration"),
+  
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Summary", tabName = "summary", icon = icon("dashboard")),
+      menuItem("Patient Info", tabName = "patient_info", icon = icon("user"))
+    )
+  ),
+  
+  dashboardBody(
+    tabItems(
+      
+      # Tab 1: Summary Statistics
+      tabItem(tabName = "summary",
+              fluidRow(
+                box(title = "Select Variable for Bar Plot",
+                    width = 4, solidHeader = TRUE, status = "info",
+                    selectInput("barplot_var", "Choose Variable for Bar Plot",
+                                choices = c("Insurance" = "insurance",
+                                            "Marital Status" = "marital_status",
+                                            "Race" = "race",
+                                            "Gender" = "gender"
+                                            )
+                                )
+                  ),
+                box(title = "Bar Plot Summary",
+                    width = 8, solidHeader = TRUE, status = "primary", 
+                    plotOutput("barplot_summary")
+                    )
+                      )
+              ),
+      
+      # Tab 2: Patient Information
+      tabItem(tabName = "patient_info",
+        fluidRow(
+          box(title = "Enter Patient ID",
+              width = 4, solidHeader = TRUE, status = "primary",
+              selectInput("patient_id",
+                          "Choose Patient ID",
+                          choices = unique(mimic_icu_cohort$subject_id))
+            ),
+          box(title = "Patient ADT",
+              width = 8, solidHeader = TRUE, status = "primary",
+              plotOutput("patient_plot"))  # Render the plot here
+                )
+              )
+          )
+            )
+)
+
+
+# Server logic
+server <- function(input, output, session) {
+  
+  # Tab 1: Numerical Summaries using gtsummary
+  output$num_summary <- render_gt({
+    # Summarize the data stratified by the `los_long` variable
+    mimic_icu_cohort %>%
+      tbl_summary(by = los_long) %>%
+      as_gt() %>% 
+      datatable()
+  })
+  
+  # Tab 1: Bar Plot Summary based on selected variable
+  output$barplot_summary <- renderPlot({
+    req(input$barplot_var)  # Ensure that a variable is selected
+    
+    # Select the appropriate variable based on input
+    var_name <- input$barplot_var
+    plot_data <- mimic_icu_cohort %>%
+      count(!!sym(var_name)) %>%
+      rename(Variable = !!sym(var_name), Count = n)
+    
+    # Generate the bar plot
+    ggplot(plot_data, aes(x = Variable, y = Count, fill = Variable)) +
+      geom_bar(stat = "identity", color = "black") + # Unique fill color
+      # print count above bar plot
+      geom_text(aes(label = Count), vjust = -0.5, size = 4) +  
+      theme_minimal() +
+      labs(title = paste(var_name, "Summary"), x = var_name, y = "Count") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })
+  
+  # Filter the data for the selected patient ID
+  patient_data_filtered <- reactive({
+    req(input$patient_id)  # Ensure that a patient_id is selected
+    mimic_icu_cohort %>% filter(subject_id == input$patient_id)
+  })
+  
+   # Get patient demographic info (for title)
+  patient_info <- reactive({
+    req(input$patient_id)
+    patient_data <- patient_data_filtered()
+    # Extract patient demographics
+    demographic_info <- patient_data %>%
+      summarise(
+        gender = first(gender),
+        age = first(age),
+        race = first(race),
+        insurance = first(insurance)
+      )
+    return(demographic_info)
+  })
+  
+  
+  # Tab 2: Render the ADT or ICU plot based on user selection
+  output$patient_plot <- renderPlot({
+    
+    # Filter the data for the selected patient
+    patient_data <- patient_data_filtered()
+    
+    # Generate the ADT plot
+    
+    plot_title <- paste("Patient", input$patient_id, ",",
+                        patient_info()$gender, ",",
+                        patient_info()$age, "years old,",
+                        patient_info()$race)
+    
+      ggplot(patient_data, aes(x = admittime, y = admission_type)) +
+      geom_segment(aes(xend = dischtime, yend = admission_type,
+                       color = admission_location, size = 4)) +
+      geom_point(aes(x = admittime, y = admission_type, shape = "ADT"),
+                 size = 4) +
+      geom_point(aes(x = dischtime, y = admission_type, shape = "ADT"),
+                 size = 4) +
+      scale_color_manual(values = c("ICU" = "red", "CCU" = "blue",
+                                    "Other" = "gray"),
+                         name = "Care Unit") +
+      scale_size_continuous(range = c(1, 3)) +
+        # Circle shape for ADT events
+      scale_shape_manual(values = c("ADT" = 16)) +  
+      labs(title = plot_title,
+           x = "Calendar Time", y = "Event Type",
+           color = "Care Unit", size = "ICU/CCU Size") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    }
+)}
+
+# Run the app
+shinyApp(ui, server)
+
+```
