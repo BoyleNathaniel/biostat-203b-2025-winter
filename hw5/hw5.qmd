@@ -4,7 +4,7 @@ subtitle: Due Mar 20 @ 11:59PM
 author: "Nathaniel Boyle and 006525153"
 format:
   html:
-    theme: cosmo
+    theme: cosmogit
     embed-resources: true
     number-sections: false
     toc: true
@@ -32,23 +32,236 @@ algorithms.
 
 1. Data preprocessing and feature engineering.
 
+Following slides on logistic regression
+
+```{r}
+#Display system infomration for reproducibility
+sessionInfo()
+```
+```{r setup, include=FALSE}
+#ignore warnings in html output
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+```{r}
+# Installs
+# Check if tidymodels is installed, and install if not
+# Check if tidymodels, rlang, or cli are installed, and install them if not
+
+if (!requireNamespace("tidymodels", quietly = TRUE)) {
+  install.packages("tidymodels")
+}
+
+# Check if rlang is installed, and install it if not
+if (!requireNamespace("rlang", quietly = TRUE)) {
+  install.packages("rlang")
+}
+
+# Check if cli is installed, and install it if not
+if (!requireNamespace("cli", quietly = TRUE)) {
+  install.packages("cli")
+}
+
+# Load libraries
+library(GGally)
+library(gtsummary)
+library(tidyverse)
+library(tidymodels)
+library(dplyr)
+library(forcats)
+library(gtsummary)
+```
+
+```{r}
+version
+```
+
+```{r}
+# Load the mimic_icu_cohort data 
+
+mimiciv_icu_cohort <- readRDS("mimic_icu_cohort.rds") |>
+  
+ # Remove columns not needed for analysis
+   select(-admit_provider_id, admittime, dischtime , deathtime, edregtime, 
+          edouttime) |>
+  
+  # Lump infrequent levels into "Other" level for specific columns
+  # we take the top 5 most frequent values, rest are lumped into "other"
+  mutate(first_careunit = fct_lump_n(first_careunit, n = 5,
+                                     other_level = "Other"),
+         last_careunit = fct_lump_n(last_careunit, n = 5,
+                                    other_level = "Other"),
+         admission_type = fct_lump_n(admission_type, n = 5,
+                                     other_level = "Other"),
+         admission_location = fct_lump_n(admission_location, n = 5,
+                                         other_level = "Other"),
+         discharge_location = fct_lump_n(discharge_location, n = 5,
+                                         other_level = "Other"),
+  
+    #  Collapse the levels of race into specified categories
+     race = fct_collapse(race,
+                    ASIAN = c("ASIAN - SOUTH EAST ASIAN",
+                              "ASIAN", "ASIAN - CHINESE", 
+                              "ASIAN - KOREAN",
+                              "ASIAN - ASIAN INDIAN"),
+                    BLACK = c("BLACK/AFRICAN AMERICAN",
+                              "BLACK/CAPE VERDEAN",
+                              "BLACK/AFRICAN",
+                              "BLACK/CARIBBEAN ISLAND"),
+                    HISPANIC = c("HISPANIC/LATINO - SALVADORAN",
+                                 "HISPANIC/LATINO - PUERTO RICAN", 
+                                 "HISPANIC/LATINO - GUATEMALAN",
+                                 "HISPANIC/LATINO - CUBAN", 
+                                 "HISPANIC/LATINO - DOMINICAN",
+                                 "HISPANIC/LATINO - CENTRAL AMERICAN", 
+                                 "HISPANIC/LATINO - HONDURAN",
+                                 "HISPANIC/LATINO - COLUMBIAN", 
+                                 "HISPANIC/LATINO - MEXICAN",
+                                 "HISPANIC OR LATINO"),
+                    WHITE = c("WHITE", "WHITE - RUSSIAN",
+                              "WHITE - OTHER EUROPEAN",
+                              "WHITE - BRAZILIAN", 
+                              "WHITE - EASTERN EUROPEAN"),
+                    Other = c("OTHER", "UNKNOWN", "UNABLE TO OBTAIN",
+                              "PATIENT DECLINED TO ANSWER", 
+                              "SOUTH AMERICAN",
+                              "MULTIPLE RACE/ETHNICITY", 
+                              "AMERICAN INDIAN/ALASKA NATIVE",
+                              "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER")),
+    
+    # Create a new variable `los_long` based on `los`
+    los_long = los >= 2
+)
+
+# create summary (stratified by los_long)
+summary_table <- mimiciv_icu_cohort |>
+  tbl_summary(by = c("los_long"))
+
+# Print the summary table
+print(summary_table)
+
+```
+
 2. Partition data into 50% training set and 50% test set. Stratify partitioning according to `los_long`. For grading purpose, sort the data by `subject_id`, `hadm_id`, and `stay_id` and use the seed `203` for the initial data split. Below is the sample code.
 ```{r}
 #| eval: false
 set.seed(203)
 
-# sort
+#Sort the data by subject_id, hadm_id, and stay_id
 mimiciv_icu_cohort <- mimiciv_icu_cohort |>
   arrange(subject_id, hadm_id, stay_id)
 
+# Perform the initial split (stratifying by los_long)
 data_split <- initial_split(
-  mimiciv_icu_cohort, 
-  # stratify by los_long
-  strata = "los_long", 
+  mimiciv_icu_cohort,
+  strata = "los_long",
   prop = 0.5
-  )
+)
 ```
 
+```{r}
+
+#check training output
+mimiciv_other <- training(data_split)
+dim(mimiciv_other)
+```
+
+```{r}
+#check test output
+mimiciv_test <- training(data_split)
+dim(mimiciv_test)
+```
+
+
 3. Train and tune the models using the training set.
+
+```{r}
+# Logistic Regression reciipe
+
+#set recipe
+
+logit_recipe <-
+  recipe(
+      los_long ~ ., #stratify on los_long
+    data = mimiciv_other
+  ) |>
+  # create traditional dummy variables
+  step_dummy(all_nominal_predictors()) |>
+  # zero-variance filter
+  step_zv(all_numeric_predictors()) |> 
+  # center and scale numeric data
+  step_normalize(all_numeric_predictors()) |>
+  # estimate the means and standard deviations
+  # prep(training = Heart_other, retain = TRUE) |>
+  print()
+```
+
+```{r}
+# Logistic Regression Model
+
+logit_mod <- 
+  logistic_reg(
+    penalty = tune(), 
+    mixture = tune()
+  ) |> 
+  set_engine("glmnet", standardize = FALSE) |>
+  print()
+
+```
+```{r}
+#Set Logistic Workflow
+logit_wf <- workflow() |>
+  add_recipe(logit_recipe) |>
+  add_model(logit_mod) |>
+  print()
+```
+
+```{r}
+# Create grid, tune penatly and mixure hyperparameters
+param_grid <- grid_regular(
+  penalty(range = c(-6, 3)), 
+  mixture(),
+  levels = c(100, 5)
+  ) |>
+  print()
+```
+
+```{r}
+# Cross Validation Set up
+
+folds <- vfold_cv(mimiciv_other, v = 5)
+folds
+
+```
+```{r}
+#fit cross-validation
+
+(logit_fit <- logit_wf |>
+  tune_grid(
+    resamples = folds,
+    grid = param_grid,
+    metrics = metric_set(roc_auc, accuracy)
+    )) |>
+  system.time()
+
+```
+
+```{r}
+logit_fit
+```
+```{r}
+#vizualize Cross Validation results
+
+logit_fit |>
+  # aggregate metrics from K folds
+  collect_metrics() |>
+  print(width = Inf) |>
+  filter(.metric == "roc_auc") |>
+  ggplot(mapping = aes(x = penalty, y = mean, color = factor(mixture))) +
+  geom_point() +
+  labs(x = "Penalty", y = "CV AUC") +
+  scale_x_log10()
+
+```
 
 4. Compare model classification performance on the test set. Report both the area under ROC curve and accuracy for each machine learning algorithm and the model stacking. Interpret the results. What are the most important features in predicting long ICU stays? How do the models compare in terms of performance and interpretability?
