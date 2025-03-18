@@ -164,7 +164,9 @@ set.seed(203)
 
 #Sort the data by subject_id, hadm_id, and stay_id
 mimiciv_icu_cohort <- mimiciv_icu_cohort |>
-  arrange(subject_id, hadm_id, stay_id)
+  arrange(subject_id, hadm_id, stay_id) |>
+  select(-c(intime, outtime, admittime, dischtime, deathtime, edregtime,
+            edouttime, dod, subject_id, hadm_id, stay_id, anchor_age))
 
 # Perform the initial split (stratifying by los_long)
 data_split <- initial_split(
@@ -192,14 +194,11 @@ dim(mimiciv_test)
 ```{r}
 # Logistic Regression recipe
 
-# Drop date-time columns before creating the recipe
-
-mimiciv_other_cleaned <- mimiciv_other |>
-  select(-c(intime, outtime, admittime, dischtime, deathtime, edregtime, edouttime, dod))
+# 
 
 logit_recipe <- recipe(
     los_long ~ .,  # Stratify on los_long
-    data = mimiciv_other_cleaned
+    data = mimiciv_other
   ) |>
   # Convert 'los_long' to factor (if it isn't already a factor)
   step_mutate(los_long = as.factor(los_long)) |>
@@ -220,9 +219,9 @@ logit_recipe |> print()
 
 
 # # Check if there are any remaining missing values in the dataset
-# anyNA(mimiciv_other_cleaned)
-# Check for columns with missing values
-colSums(is.na(mimiciv_other_cleaned))
+ anyNA(mimiciv_other)
+ 
+ table(mimiciv_other$los_long)
 
 ```
 
@@ -258,7 +257,6 @@ param_grid <- grid_regular(
 
 ```{r}
 # Cross Validation Set up
-
 folds <- vfold_cv(mimiciv_other, v = 5)
 folds
 
