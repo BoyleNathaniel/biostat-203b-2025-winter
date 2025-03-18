@@ -61,6 +61,18 @@ if (!requireNamespace("rlang", quietly = TRUE)) {
 if (!requireNamespace("cli", quietly = TRUE)) {
   install.packages("cli")
 }
+# Check if cli is installed, and install it if not
+if (!requireNamespace("ranger", quietly = TRUE)) {
+  install.packages("ranger")
+}
+# Check if cli is installed, and install it if not
+if (!requireNamespace("keras", quietly = TRUE)) {
+  install.packages("keras")
+}
+# Check if cli is installed, and install it if not
+if (!requireNamespace("stacks", quietly = TRUE)) {
+  install.packages("stacks")
+}
 
 # Load libraries
 library(GGally)
@@ -70,6 +82,9 @@ library(tidymodels)
 library(dplyr)
 library(forcats)
 library(gtsummary)
+library(ranger)
+library(keras)
+library(stacks)
 ```
 
 ```{r}
@@ -160,7 +175,6 @@ data_split <- initial_split(
 ```
 
 ```{r}
-
 #check training output
 mimiciv_other <- training(data_split)
 dim(mimiciv_other)
@@ -176,24 +190,40 @@ dim(mimiciv_test)
 3. Train and tune the models using the training set.
 
 ```{r}
-# Logistic Regression reciipe
+# Logistic Regression recipe
 
-#set recipe
+# Drop date-time columns before creating the recipe
 
-logit_recipe <-
-  recipe(
-      los_long ~ ., #stratify on los_long
-    data = mimiciv_other
+mimiciv_other_cleaned <- mimiciv_other |>
+  select(-c(intime, outtime, admittime, dischtime, deathtime, edregtime, edouttime, dod))
+
+logit_recipe <- recipe(
+    los_long ~ .,  # Stratify on los_long
+    data = mimiciv_other_cleaned
   ) |>
-  # create traditional dummy variables
+  # Convert 'los_long' to factor (if it isn't already a factor)
+  step_mutate(los_long = as.factor(los_long)) |>
+  # Impute missing values for numeric columns (mean imputation)
+  step_impute_mean(all_numeric_predictors()) |>
+  # Impute missing values for categorical/logical columns (mode imputation)
+  step_impute_mode(all_nominal_predictors()) |>
+  step_unknown(all_nominal_predictors()) |>
+  # Create dummy variables for nominal predictors
   step_dummy(all_nominal_predictors()) |>
-  # zero-variance filter
-  step_zv(all_numeric_predictors()) |> 
-  # center and scale numeric data
-  step_normalize(all_numeric_predictors()) |>
-  # estimate the means and standard deviations
-  # prep(training = Heart_other, retain = TRUE) |>
-  print()
+  # Zero-variance filter for numeric predictors
+  step_zv(all_numeric_predictors()) |>
+  # Normalize numeric predictors
+  step_normalize(all_numeric_predictors())
+
+# Optionally, you can inspect the recipe
+logit_recipe |> print()
+
+
+# # Check if there are any remaining missing values in the dataset
+# anyNA(mimiciv_other_cleaned)
+# Check for columns with missing values
+colSums(is.na(mimiciv_other_cleaned))
+
 ```
 
 ```{r}
@@ -246,9 +276,12 @@ folds
 
 ```
 
+
 ```{r}
 logit_fit
 ```
+
+
 ```{r}
 #vizualize Cross Validation results
 
@@ -263,5 +296,224 @@ logit_fit |>
   scale_x_log10()
 
 ```
+
+
+Training SVM Model
+
+```{r}
+
+svm_recipe <- 
+  recipe(
+    AHD ~ ., 
+    data = Heart_other
+  ) |>
+  # mean imputation for Ca
+  step_impute_mean(Ca) |>
+  # mode imputation for Thal
+  step_impute_mode(Thal) |>
+  # create traditional dummy variables (necessary for svm)
+  step_dummy(all_nominal_predictors()) |>
+  # zero-variance filter
+  step_zv(all_numeric_predictors()) |> 
+  # center and scale numeric data
+  step_normalize(all_numeric_predictors()) |>
+  # estimate the means and standard deviations
+  # prep(training = Heart_other, retain = TRUE) |>
+  print()
+
+
+svm_mod <- 
+  svm_rbf(
+    mode = "classification",
+    cost = tune(),
+    rbf_sigma = tune()
+  ) |> 
+  set_engine("kernlab")
+svm_mod
+
+
+svm_wf <- workflow() |>
+  add_recipe(svm_recipe) |>
+  add_model(svm_mod)
+svm_wf
+
+
+param_grid <- grid_regular(
+  cost(range = c(-8, 5)),
+  rbf_sigma(range = c(-5, -3)),
+  levels = c(14, 5)
+  )
+param_grid
+
+
+set.seed(203)
+
+folds <- vfold_cv(Heart_other, v = 5)
+folds
+
+
+svm_fit <- svm_wf |>
+  tune_grid(
+    resamples = folds,
+    grid = param_grid,
+    metrics = metric_set(roc_auc, accuracy)
+    )
+svm_fit
+
+
+svm_fit <- svm_wf |>
+  tune_grid(
+    resamples = folds,
+    grid = param_grid,
+    metrics = metric_set(roc_auc, accuracy)
+    )
+svm_fit
+
+
+svm_fit |>
+  show_best(metric = "roc_auc")
+
+
+final_wf <- svm_wf |>
+  finalize_workflow(best_svm)
+final_wf
+
+
+# Fit the whole training set, then predict the test cases
+final_fit <- 
+  final_wf |>
+  last_fit(data_split)
+final_fit
+
+
+```
+
+Train Random Forest Model
+
+```{r}
+
+rf_recipe <- 
+  recipe(
+    AHD ~ ., 
+    data = Heart_other
+  ) |>
+  # # create traditional dummy variables (not necessary for random forest in R)
+  # step_dummy(all_nominal()) |>
+  # mean imputation for Ca
+  step_impute_mean(Ca) |>
+  # mode imputation for Thal
+  step_impute_mode(Thal) |>
+  # zero-variance filter
+  step_zv(all_numeric_predictors()) |>
+  # # center and scale numeric data (not necessary for random forest)
+  # step_normalize(all_numeric_predictors()) |>
+  # estimate the means and standard deviations
+  # prep(training = Heart_other, retain = TRUE) |>
+  print()
+
+
+rf_mod <- 
+  rand_forest(
+    mode = "classification",
+    # Number of predictors randomly sampled in each split
+    mtry = tune(),
+    # Number of trees in ensemble
+    trees = tune()
+  ) |> 
+  set_engine("ranger")
+rf_mod
+
+rf_wf <- workflow() |>
+  add_recipe(rf_recipe) |>
+  add_model(rf_mod)
+rf_wf
+
+
+param_grid <- grid_regular(
+  trees(range = c(100L, 500L)), 
+  mtry(range = c(1L, 5L)),
+  levels = c(5, 5)
+  )
+param_grid
+
+set.seed(203)
+
+folds <- vfold_cv(Heart_other, v = 5)
+folds
+
+rf_fit <- rf_wf |>
+  tune_grid(
+    resamples = folds,
+    grid = param_grid,
+    metrics = metric_set(roc_auc, accuracy)
+    )
+rf_fit
+
+```
+Stacking the 3 models
+
+
+```{r}
+heart_model_st <- 
+  # initialize the stack
+  stacks() |>
+  # add candidate members
+  add_candidates(logit_res) |>
+  add_candidates(rf_res) |>
+  add_candidates(mlp_res) |>
+  # determine how to combine their predictions
+  blend_predictions(
+    penalty = 10^(-6:2),
+    metrics = c("roc_auc")
+    ) |>
+  # fit the candidates with nonzero stacking coefficients
+  fit_members()
+heart_model_st
+
+autoplot(heart_model_st)
+
+autoplot(heart_model_st, type = "members")
+
+autoplot(heart_model_st, type = "weights")
+
+
+collect_parameters(heart_model_st, "rf_res")
+
+
+heart_pred <- Heart_test %>%
+  bind_cols(predict(heart_model_st, ., type = "prob")) %>%
+  print(width = Inf)
+
+
+yardstick::roc_auc(
+  heart_pred,
+  truth = AHD,
+  contains(".pred_No")
+  )
+
+
+heart_pred <-
+  Heart_test |>
+  select(AHD) |>
+  bind_cols(
+    predict(
+      heart_model_st,
+      Heart_test,
+      type = "class",
+      members = TRUE
+      )
+    ) |>
+  print(width = Inf)
+
+
+map(
+  colnames(heart_pred),
+  ~mean(heart_pred$AHD == pull(heart_pred, .x))
+  ) |>
+  set_names(colnames(heart_pred)) |>
+  as_tibble() |>
+  pivot_longer(c(everything(), -AHD))
+```
+
 
 4. Compare model classification performance on the test set. Report both the area under ROC curve and accuracy for each machine learning algorithm and the model stacking. Interpret the results. What are the most important features in predicting long ICU stays? How do the models compare in terms of performance and interpretability?
