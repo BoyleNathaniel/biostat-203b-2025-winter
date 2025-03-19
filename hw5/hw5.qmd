@@ -159,7 +159,6 @@ print(summary_table)
 
 2. Partition data into 50% training set and 50% test set. Stratify partitioning according to `los_long`. For grading purpose, sort the data by `subject_id`, `hadm_id`, and `stay_id` and use the seed `203` for the initial data split. Below is the sample code.
 ```{r}
-#| eval: false
 set.seed(203)
 
 #Sort the data by subject_id, hadm_id, and stay_id
@@ -172,7 +171,7 @@ mimiciv_icu_cohort <- mimiciv_icu_cohort |>
 data_split <- initial_split(
   mimiciv_icu_cohort,
   strata = "los_long",
-  prop = 0.5
+  prop = 0.25 #smaller training for faster code | change later
 )
 ```
 
@@ -193,9 +192,6 @@ dim(mimiciv_test)
 
 ```{r}
 # Logistic Regression recipe
-
-# 
-
 logit_recipe <- recipe(
     los_long ~ .,  # Stratify on los_long
     data = mimiciv_other
@@ -294,32 +290,73 @@ logit_fit |>
   scale_x_log10()
 
 ```
+Show top 5 LR models (no standard error is showing)
+```{r}
+logit_fit |>
+  show_best(metric = "roc_auc")
+
+```
+Select best model
+```{r}
+best_logit <- logit_fit |>
+  select_best(metric = "roc_auc")
+best_logit
+
+```
+Finalize LR model
+
+```{r}
+# Final workflow
+final_wf <- logit_wf |>
+  finalize_workflow(best_logit)
+final_wf
+
+```
+Fit the whole training set, predict test cases
 
 
+```{r}
+# Fit the whole training set, then predict the test cases
+final_fit <- 
+  final_wf |>
+  last_fit(data_split)
+final_fit
+
+```
+
+Test metrics
+
+```{r}
+# Test metrics
+final_fit |> 
+  collect_metrics()
+```
 Training SVM Model
 
 ```{r}
 
-svm_recipe <- 
-  recipe(
-    AHD ~ ., 
-    data = Heart_other
+svm_recipe <- recipe(
+    los_long ~ .,  # Stratify on los_long
+    data = mimiciv_other
   ) |>
-  # mean imputation for Ca
-  step_impute_mean(Ca) |>
-  # mode imputation for Thal
-  step_impute_mode(Thal) |>
-  # create traditional dummy variables (necessary for svm)
+  # Convert 'los_long' to factor (if it isn't already a factor)
+  step_mutate(los_long = as.factor(los_long)) |>
+  # Impute missing values for numeric columns (mean imputation)
+  step_impute_mean(all_numeric_predictors()) |>
+  # Impute missing values for categorical/logical columns (mode imputation)
+  step_impute_mode(all_nominal_predictors()) |>
+  step_unknown(all_nominal_predictors()) |>
+  # Create dummy variables for nominal predictors
   step_dummy(all_nominal_predictors()) |>
-  # zero-variance filter
-  step_zv(all_numeric_predictors()) |> 
-  # center and scale numeric data
-  step_normalize(all_numeric_predictors()) |>
-  # estimate the means and standard deviations
-  # prep(training = Heart_other, retain = TRUE) |>
+  # Zero-variance filter for numeric predictors
+  step_zv(all_numeric_predictors()) |>
+  # Normalize numeric predictors
+  step_normalize(all_numeric_predictors())|>
   print()
+```
 
-
+```{r}
+#SVM model classification
 svm_mod <- 
   svm_rbf(
     mode = "classification",
@@ -328,13 +365,18 @@ svm_mod <-
   ) |> 
   set_engine("kernlab")
 svm_mod
+```
+SVM workflow
 
-
+```{r}
 svm_wf <- workflow() |>
   add_recipe(svm_recipe) |>
   add_model(svm_mod)
 svm_wf
 
+```
+SVM Tuning Grid
+```{r}
 
 param_grid <- grid_regular(
   cost(range = c(-8, 5)),
@@ -342,11 +384,13 @@ param_grid <- grid_regular(
   levels = c(14, 5)
   )
 param_grid
-
-
+```
+Cross-Validation
+```{r}
+#install.packages("kernlab")
 set.seed(203)
 
-folds <- vfold_cv(Heart_other, v = 5)
+folds <- vfold_cv(mimiciv_other, v = 2)
 folds
 
 
@@ -358,20 +402,29 @@ svm_fit <- svm_wf |>
     )
 svm_fit
 
-
-svm_fit <- svm_wf |>
-  tune_grid(
-    resamples = folds,
-    grid = param_grid,
-    metrics = metric_set(roc_auc, accuracy)
-    )
-svm_fit
-
+svm_fit |>
+  collect_metrics() |>
+  print(width = Inf) |>
+  filter(.metric == "roc_auc") |>
+  ggplot(mapping = aes(x = cost, y = mean, color = factor(rbf_sigma))) +
+  geom_point() +
+  labs(x = "Cost", y = "CV AUC") +
+  scale_x_log10()
 
 svm_fit |>
   show_best(metric = "roc_auc")
+```
 
+```{r}
+#select best model
+best_svm <- svm_fit |>
+  select_best(metric = "roc_auc")
+best_svm
 
+```
+Finalize our model
+
+```{r}
 final_wf <- svm_wf |>
   finalize_workflow(best_svm)
 final_wf
@@ -383,33 +436,43 @@ final_fit <-
   last_fit(data_split)
 final_fit
 
-
 ```
-
+SVM test metrics
+```{r}
+# Test metrics
+final_fit |> 
+  collect_metrics()
+```
 Train Random Forest Model
 
 ```{r}
+mimiciv_other <- mimiciv_other %>% filter(!is.na(los_long))
 
-rf_recipe <- 
-  recipe(
-    AHD ~ ., 
-    data = Heart_other
+rf_recipe <- recipe(
+    los_long ~ .,  # Stratify on los_long
+    data = mimiciv_other
   ) |>
-  # # create traditional dummy variables (not necessary for random forest in R)
-  # step_dummy(all_nominal()) |>
-  # mean imputation for Ca
-  step_impute_mean(Ca) |>
-  # mode imputation for Thal
-  step_impute_mode(Thal) |>
-  # zero-variance filter
+  # Convert 'los_long' to factor (if it isn't already a factor)
+  step_mutate(los_long = as.factor(los_long)) |>
+  # Impute missing values for numeric columns (mean imputation)
+  step_impute_mean(all_numeric_predictors()) |>
+  # Impute missing values for categorical/logical columns (mode imputation)
+  step_impute_mode(all_nominal_predictors()) |>
+  step_unknown(all_nominal_predictors()) |>
+  # Create dummy variables for nominal predictors
+  step_dummy(all_nominal_predictors()) |>
+  # Zero-variance filter for numeric predictors
   step_zv(all_numeric_predictors()) |>
-  # # center and scale numeric data (not necessary for random forest)
-  # step_normalize(all_numeric_predictors()) |>
-  # estimate the means and standard deviations
-  # prep(training = Heart_other, retain = TRUE) |>
+  # Normalize numeric predictors
+  step_normalize(all_numeric_predictors())|>
   print()
 
+sum(is.na(mimiciv_other$los_long))
 
+
+```
+
+```{r}
 rf_mod <- 
   rand_forest(
     mode = "classification",
@@ -420,12 +483,18 @@ rf_mod <-
   ) |> 
   set_engine("ranger")
 rf_mod
+```
+
+```{r}
 
 rf_wf <- workflow() |>
   add_recipe(rf_recipe) |>
   add_model(rf_mod)
 rf_wf
+```
 
+
+```{r}
 
 param_grid <- grid_regular(
   trees(range = c(100L, 500L)), 
@@ -433,12 +502,17 @@ param_grid <- grid_regular(
   levels = c(5, 5)
   )
 param_grid
+```
+
+```{r}
 
 set.seed(203)
 
-folds <- vfold_cv(Heart_other, v = 5)
+folds <- vfold_cv(mimiciv_other, v = 2)
 folds
+```
 
+```{r}
 rf_fit <- rf_wf |>
   tune_grid(
     resamples = folds,
@@ -446,6 +520,52 @@ rf_fit <- rf_wf |>
     metrics = metric_set(roc_auc, accuracy)
     )
 rf_fit
+
+```
+
+```{r}
+rf_fit |>
+  collect_metrics() |>
+  print(width = Inf) |>
+  filter(.metric == "roc_auc") |>
+  ggplot(mapping = aes(x = trees, y = mean, color = factor(mtry))) +
+  geom_point() + 
+  # geom_line() + 
+  labs(x = "Num. of Trees", y = "CV AUC")
+
+```
+Shoow top 5 models
+```{r}
+rf_fit |>
+  show_best(metric = "roc_auc")
+
+```
+Choose best model
+```{r}
+best_rf <- rf_fit |>
+  select_best(metric = "roc_auc")
+best_rf
+
+```
+
+Finalize Model
+
+```{r}
+
+# Final workflow
+final_wf <- rf_wf |>
+  finalize_workflow(best_rf)
+final_wf
+
+# Fit the whole training set, then predict the test cases
+final_fit <- 
+  final_wf |>
+  last_fit(data_split)
+final_fit
+
+# Test metrics
+final_fit |> 
+  collect_metrics()
 
 ```
 Stacking the 3 models
