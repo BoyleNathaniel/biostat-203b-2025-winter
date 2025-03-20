@@ -167,11 +167,23 @@ mimiciv_icu_cohort <- mimiciv_icu_cohort |>
   select(-c(intime, outtime, admittime, dischtime, deathtime, edregtime,
             edouttime, dod, subject_id, hadm_id, stay_id, anchor_age))
 
+
+
+# Drop rows with any NA values
+mimiciv_icu_cohort <- mimiciv_icu_cohort %>%
+  drop_na()
+
+# Now proceed with the rest of your analysis, such as recipe, model fitting, etc.
+
+
+# Now proceed with the rest of your analysis, such as recipe, model fitting, etc.
+
+
 # Perform the initial split (stratifying by los_long)
 data_split <- initial_split(
   mimiciv_icu_cohort,
   strata = "los_long",
-  prop = 0.25 #smaller training for faster code | change later
+  prop = 0.1 #smaller training for faster code | change later
 )
 ```
 
@@ -179,6 +191,12 @@ data_split <- initial_split(
 #check training output
 mimiciv_other <- training(data_split)
 dim(mimiciv_other)
+
+# Check for NAs in your dataset
+anyNA(mimiciv_icu_cohort)
+
+# Get the count of missing values by column
+colSums(is.na(mimiciv_icu_cohort))
 ```
 
 ```{r}
@@ -191,21 +209,23 @@ dim(mimiciv_test)
 3. Train and tune the models using the training set.
 
 ```{r}
+
 # Logistic Regression recipe
 logit_recipe <- recipe(
     los_long ~ .,  # Stratify on los_long
     data = mimiciv_other
   ) |>
   # Convert 'los_long' to factor (if it isn't already a factor)
+    # Handle new levels in categorical variables (e.g., language)
+  step_novel(all_nominal_predictors()) |>
   step_mutate(los_long = as.factor(los_long)) |>
-  # Impute missing values for numeric columns (mean imputation)
-  step_impute_mean(all_numeric_predictors()) |>
-  # Impute missing values for categorical/logical columns (mode imputation)
+  # Impute missing numeric values with the median
+  step_impute_median(all_numeric_predictors()) |>
+  # Impute missing categorical values with the mode
   step_impute_mode(all_nominal_predictors()) |>
-  step_unknown(all_nominal_predictors()) |>
-  # Create dummy variables for nominal predictors
+  # Convert all categorical predictors to dummy variables
   step_dummy(all_nominal_predictors()) |>
-  # Zero-variance filter for numeric predictors
+  # Remove zero-variance predictors
   step_zv(all_numeric_predictors()) |>
   # Normalize numeric predictors
   step_normalize(all_numeric_predictors())
@@ -575,8 +595,8 @@ Stacking the 3 models
 heart_model_st <- 
   # initialize the stack
   stacks() |>
-  # add candidate members
-  add_candidates(logit_res) |>
+  # add candidate members (fits)
+  add_candidates(logit_fit) |>
   add_candidates(rf_res) |>
   add_candidates(mlp_res) |>
   # determine how to combine their predictions
