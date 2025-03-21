@@ -1,0 +1,759 @@
+---
+title: "Biostat 203B Homework 5"
+subtitle: Due Mar 20 @ 11:59PM
+author: "Nathaniel Boyle and 006525153"
+format:
+  pdf:
+    theme: cosmogit
+    embed-resources: true
+    number-sections: false
+    toc: true
+    toc-depth: 4
+    toc-location: left
+    code-fold: false
+---
+
+## Predicting ICU duration
+
+Using the ICU cohort `mimiciv_icu_cohort.rds` you built in Homework 4, develop
+at least three machine learning approaches (logistic regression with enet
+regularization, random forest, boosting, SVM, MLP, etc) plus a model 
+stacking approach for predicting whether a patient's ICU stay will be 
+longer than 2 days. You should use the `los_long` variable as the outcome. 
+You algorithms can use patient demographic information 
+(gender, age at ICU `intime`, marital status, race),
+ICU admission information (first care unit),
+the last lab measurements before the ICU stay, and first vital measurements
+during ICU stay as features. 
+You are welcome to use any feature engineering techniques you think are
+appropriate; but make sure to not use features that are not available at an ICU
+stay's `intime`. For instance, `last_careunit` cannot be used in your
+algorithms. 
+
+1. Data preprocessing and feature engineering.
+
+Following slides on logistic regression
+
+```{r}
+#Display system infomration for reproducibility
+sessionInfo()
+```
+```{r setup, include=FALSE}
+#ignore warnings in html output
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+```{r}
+# Installs
+# Check if tidymodels is installed, and install if not
+
+if (!requireNamespace("tidymodels", quietly = TRUE)) {
+  install.packages("tidymodels")
+}
+
+# Check if rlang is installed, and install it if not
+if (!requireNamespace("rlang", quietly = TRUE)) {
+  install.packages("rlang")
+}
+
+# Check if cli is installed, and install it if not
+if (!requireNamespace("cli", quietly = TRUE)) {
+  install.packages("cli")
+}
+# Check if cli is installed, and install it if not
+if (!requireNamespace("ranger", quietly = TRUE)) {
+  install.packages("ranger")
+}
+# Check if cli is installed, and install it if not
+if (!requireNamespace("keras", quietly = TRUE)) {
+  install.packages("keras")
+}
+# Check if cli is installed, and install it if not
+if (!requireNamespace("stacks", quietly = TRUE)) {
+  install.packages("stacks")
+}
+
+# Load libraries
+library(GGally)
+library(gtsummary)
+library(tidyverse)
+library(tidymodels)
+library(dplyr)
+library(forcats)
+library(gtsummary)
+library(ranger)
+library(keras)
+library(stacks)
+```
+
+```{r}
+version
+```
+
+```{r}
+# Load the mimic_icu_cohort data 
+
+mimiciv_icu_cohort <- readRDS("mimic_icu_cohort.rds") |>
+  
+ # Remove columns not needed for analysis
+   select(-admit_provider_id, admittime, dischtime , deathtime, edregtime, 
+          edouttime) |>
+  
+  # Lump infrequent levels into "Other" level for specific columns
+  # we take the top 5 most frequent values, rest are lumped into "other"
+  mutate(first_careunit = fct_lump_n(first_careunit, n = 5,
+                                     other_level = "Other"),
+         last_careunit = fct_lump_n(last_careunit, n = 5,
+                                    other_level = "Other"),
+         admission_type = fct_lump_n(admission_type, n = 5,
+                                     other_level = "Other"),
+         admission_location = fct_lump_n(admission_location, n = 5,
+                                         other_level = "Other"),
+         discharge_location = fct_lump_n(discharge_location, n = 5,
+                                         other_level = "Other"),
+  
+    #  Collapse the levels of race into specified categories
+     race = fct_collapse(race,
+                    ASIAN = c("ASIAN - SOUTH EAST ASIAN",
+                              "ASIAN", "ASIAN - CHINESE", 
+                              "ASIAN - KOREAN",
+                              "ASIAN - ASIAN INDIAN"),
+                    BLACK = c("BLACK/AFRICAN AMERICAN",
+                              "BLACK/CAPE VERDEAN",
+                              "BLACK/AFRICAN",
+                              "BLACK/CARIBBEAN ISLAND"),
+                    HISPANIC = c("HISPANIC/LATINO - SALVADORAN",
+                                 "HISPANIC/LATINO - PUERTO RICAN", 
+                                 "HISPANIC/LATINO - GUATEMALAN",
+                                 "HISPANIC/LATINO - CUBAN", 
+                                 "HISPANIC/LATINO - DOMINICAN",
+                                 "HISPANIC/LATINO - CENTRAL AMERICAN", 
+                                 "HISPANIC/LATINO - HONDURAN",
+                                 "HISPANIC/LATINO - COLUMBIAN", 
+                                 "HISPANIC/LATINO - MEXICAN",
+                                 "HISPANIC OR LATINO"),
+                    WHITE = c("WHITE", "WHITE - RUSSIAN",
+                              "WHITE - OTHER EUROPEAN",
+                              "WHITE - BRAZILIAN", 
+                              "WHITE - EASTERN EUROPEAN"),
+                    Other = c("OTHER", "UNKNOWN", "UNABLE TO OBTAIN",
+                              "PATIENT DECLINED TO ANSWER", 
+                              "SOUTH AMERICAN",
+                              "MULTIPLE RACE/ETHNICITY", 
+                              "AMERICAN INDIAN/ALASKA NATIVE",
+                              "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER")),
+    
+    # Create a new variable `los_long` based on `los`
+    los_long = los >= 2
+)
+
+# create summary (stratified by los_long)
+summary_table <- mimiciv_icu_cohort |>
+  tbl_summary(by = c("los_long"))
+
+# Print the summary table
+print(summary_table)
+
+```
+
+2. Partition data into 50% training set and 50% test set. Stratify partitioning according to `los_long`. For grading purpose, sort the data by `subject_id`, `hadm_id`, and `stay_id` and use the seed `203` for the initial data split. Below is the sample code.
+```{r}
+set.seed(203)
+
+#Sort the data by subject_id, hadm_id, and stay_id
+mimiciv_icu_cohort <- mimiciv_icu_cohort |>
+  arrange(subject_id, hadm_id, stay_id) |>
+  select(-c(intime, outtime, admittime, dischtime, deathtime, edregtime,
+            edouttime, dod, subject_id, hadm_id, stay_id, anchor_age))
+
+
+
+# Drop rows with any NA values
+mimiciv_icu_cohort <- mimiciv_icu_cohort |>
+  drop_na()
+
+# Now proceed with the rest of your analysis, such as recipe, model fitting, etc.
+
+
+# Now proceed with the rest of your analysis, such as recipe, model fitting, etc.
+
+
+# Perform the initial split (stratifying by los_long)
+data_split <- initial_split(
+  mimiciv_icu_cohort,
+  strata = "los_long",
+  prop = 0.1 #smaller training for faster code | change later
+)
+```
+
+```{r}
+#check training output
+mimiciv_other <- training(data_split)
+dim(mimiciv_other)
+
+# Check for NAs in your dataset
+anyNA(mimiciv_icu_cohort)
+
+# Get the count of missing values by column
+colSums(is.na(mimiciv_icu_cohort))
+```
+
+```{r}
+#check test output
+mimiciv_test <- training(data_split)
+dim(mimiciv_test)
+colSums(is.na(mimiciv_icu_cohort))
+```
+
+
+3. Train and tune the models using the training set.
+
+```{r}
+
+# Logistic Regression recipe
+logit_recipe <- recipe(
+    los_long ~ .,  # Stratify on los_long
+    data = mimiciv_other
+  ) |>
+  # Handle new levels in categorical variables (e.g., language)
+  step_novel(all_nominal_predictors()) |>
+  # Convert 'los_long' to factor (if it isn't already a factor)
+  step_mutate(los_long = as.factor(los_long)) |>
+  # Impute missing numeric values with the median
+  step_impute_median(all_numeric_predictors()) |>
+  # Impute missing categorical values with the mode
+  step_impute_mode(all_nominal_predictors()) |>
+  # Convert all categorical predictors to dummy variables
+  step_dummy(all_nominal_predictors()) |>
+  # Remove zero-variance predictors
+  step_zv(all_numeric_predictors()) |>
+  # Normalize numeric predictors
+  step_normalize(all_numeric_predictors())
+
+# Optionally, you can inspect the recipe
+logit_recipe |> print()
+
+
+# # Check if there are any remaining missing values in the dataset
+ anyNA(mimiciv_other)
+ 
+ table(mimiciv_other$los_long)
+
+```
+
+```{r}
+# Logistic Regression Model
+
+logit_mod <- 
+  logistic_reg(
+    penalty = tune(), 
+    mixture = tune()
+  ) |> 
+  set_engine("glmnet", standardize = FALSE) |>
+  print()
+
+```
+```{r}
+#Set Logistic Workflow
+logit_wf <- workflow() |>
+  add_recipe(logit_recipe) |>
+  add_model(logit_mod) |>
+  print()
+```
+
+```{r}
+# Create grid, tune penatly and mixure hyperparameters
+param_grid <- grid_regular(
+  penalty(range = c(-6, 3)), 
+  mixture(),
+  levels = c(100, 5)
+  ) |>
+  print()
+```
+
+```{r}
+# Cross Validation Set up
+folds <- vfold_cv(mimiciv_other, v = 2)
+folds
+
+```
+```{r}
+#fit cross-validation
+
+(logit_fit <- logit_wf |>
+  tune_grid(
+    resamples = folds,
+    grid = param_grid,
+    control = control_stack_grid(), #for stacking
+    metrics = metric_set(roc_auc, accuracy)
+    )) |>
+  system.time()
+
+```
+
+
+```{r}
+logit_fit
+```
+
+
+```{r}
+#vizualize Cross Validation results
+
+logit_fit |>
+  # aggregate metrics from K folds
+  collect_metrics() |>
+  print(width = Inf) |>
+  filter(.metric == "roc_auc") |>
+  ggplot(mapping = aes(x = penalty, y = mean, color = factor(mixture))) +
+  geom_point() +
+  labs(x = "Penalty", y = "CV AUC") +
+  scale_x_log10()
+
+```
+Show top 5 LR models
+```{r}
+logit_fit |>
+  show_best(metric = "roc_auc")
+
+```
+Select best model
+```{r}
+best_logit <- logit_fit |>
+  select_best(metric = "roc_auc")
+best_logit
+
+```
+Finalize LR model
+
+```{r}
+# Final workflow
+final_wf <- logit_wf |>
+  finalize_workflow(best_logit)
+final_wf
+
+```
+Fit the whole training set, predict test cases
+
+
+```{r}
+# Fit the whole training set, then predict the test cases
+final_fit <- 
+  final_wf |>
+  last_fit(data_split)
+final_fit
+
+```
+
+LR Test metrics
+
+```{r}
+# Test metrics
+final_fit |> 
+  collect_metrics()
+```
+
+We report that the Logistic regression model has an accuracy of 0.73 with an area
+under the ROC_AUC curve of 1.0
+
+Training SVM Model
+
+```{r}
+
+svm_recipe <- recipe(
+    los_long ~ .,  # Stratify on los_long
+    data = mimiciv_other
+  ) |>
+  # Convert 'los_long' to factor (if it isn't already a factor)
+  step_mutate(los_long = as.factor(los_long)) |>
+  # Handle new levels in categorical variables (e.g., language)
+  step_novel(all_nominal_predictors()) |>
+  # Impute missing values for numeric columns (mean imputation)
+  step_impute_mean(all_numeric_predictors()) |>
+  # Impute missing values for categorical/logical columns (mode imputation)
+  step_impute_mode(all_nominal_predictors()) |>
+  step_unknown(all_nominal_predictors()) |>
+  # Create dummy variables for nominal predictors
+  step_dummy(all_nominal_predictors()) |>
+  # Zero-variance filter for numeric predictors
+  step_zv(all_numeric_predictors()) |>
+  # Normalize numeric predictors
+  step_normalize(all_numeric_predictors())|>
+  print()
+```
+
+```{r}
+#SVM model classification
+svm_mod <- 
+  svm_rbf(
+    mode = "classification",
+    cost = tune(),
+    rbf_sigma = tune()
+  ) |> 
+  set_engine("kernlab")
+svm_mod
+```
+SVM workflow
+
+```{r}
+svm_wf <- workflow() |>
+  add_recipe(svm_recipe) |>
+  add_model(svm_mod)
+svm_wf
+
+```
+SVM Tuning Grid
+```{r}
+
+param_grid <- grid_regular(
+  cost(range = c(-8, 5)),
+  rbf_sigma(range = c(-5, -3)),
+  levels = c(14, 5)
+  )
+param_grid
+```
+Cross-Validation
+```{r}
+#install.packages("kernlab")
+set.seed(203)
+
+folds <- vfold_cv(mimiciv_other, v = 2)
+folds
+```
+
+```{r}
+#fit svm
+svm_fit <- svm_wf |>
+  tune_grid(
+    resamples = folds,
+    grid = param_grid,
+    control = control_stack_grid(), #for stacking
+    metrics = metric_set(roc_auc, accuracy)
+    )
+svm_fit
+
+svm_fit |>
+  collect_metrics() |>
+  print(width = Inf) |>
+  filter(.metric == "roc_auc") |>
+  ggplot(mapping = aes(x = cost, y = mean, color = factor(rbf_sigma))) +
+  geom_point() +
+  labs(x = "Cost", y = "CV AUC") +
+  scale_x_log10()
+
+svm_fit |>
+  show_best(metric = "roc_auc")
+```
+
+```{r}
+#select best model
+best_svm <- svm_fit |>
+  select_best(metric = "roc_auc")
+best_svm
+
+```
+Finalize SVM model
+
+```{r}
+final_wf <- svm_wf |>
+  finalize_workflow(best_svm)
+final_wf
+
+
+# Fit the whole training set, then predict the test cases
+final_fit <- 
+  final_wf |>
+  last_fit(data_split)
+final_fit
+
+```
+SVM test metrics
+```{r}
+# Test metrics
+final_fit |> 
+  collect_metrics()
+```
+For the SVM model we report an area under the roc_ curve of 0.99 with an
+accuracy of 96%
+
+Train Random Forest Model
+
+```{r}
+
+rf_recipe <- recipe(
+    los_long ~ .,  # Stratify on los_long
+    data = mimiciv_other
+  ) |>
+  # Convert 'los_long' to factor (if it isn't already a factor)
+  step_mutate(los_long = as.factor(los_long)) |>
+  # Handle new levels in categorical variables (e.g., language)
+  step_novel(all_nominal_predictors()) |>
+  # Impute missing values for numeric columns (mean imputation)
+  step_impute_mean(all_numeric_predictors()) |>
+  # Impute missing values for categorical/logical columns (mode imputation)
+  step_impute_mode(all_nominal_predictors()) |>
+  step_unknown(all_nominal_predictors()) |>
+  # Create dummy variables for nominal predictors
+  step_dummy(all_nominal_predictors()) |>
+  # Zero-variance filter for numeric predictors
+  step_zv(all_numeric_predictors()) |>
+  # Normalize numeric predictors
+  step_normalize(all_numeric_predictors())|>
+  print()
+
+```
+
+```{r}
+rf_mod <- 
+  rand_forest(
+    mode = "classification",
+    # Number of predictors randomly sampled in each split
+    mtry = tune(),
+    # Number of trees in ensemble
+    trees = tune()
+  ) |> 
+  set_engine("ranger")
+rf_mod
+```
+
+```{r}
+rf_wf <- workflow() |>
+  add_recipe(rf_recipe) |>
+  add_model(rf_mod)
+rf_wf
+```
+
+
+```{r}
+#set grid
+param_grid <- grid_regular(
+  trees(range = c(100L, 500L)), 
+  mtry(range = c(1L, 5L)),
+  levels = c(5, 5)
+  )
+param_grid
+```
+
+```{r}
+#set folds
+set.seed(203)
+
+folds <- vfold_cv(mimiciv_other, v = 2)
+folds
+```
+
+```{r}
+#fit random forest model
+rf_fit <- rf_wf |>
+  tune_grid(
+    resamples = folds,
+    grid = param_grid,
+    control = control_stack_grid(), #for stacking
+    metrics = metric_set(roc_auc, accuracy)
+    )
+
+rf_fit
+
+```
+
+```{r}
+rf_fit |>
+  collect_metrics() |>
+  print(width = Inf) |>
+  filter(.metric == "roc_auc") |>
+  ggplot(mapping = aes(x = trees, y = mean, color = factor(mtry))) +
+  geom_point() + 
+  # geom_line() + 
+  labs(x = "Num. of Trees", y = "CV AUC")
+
+```
+Shoow top 5 models
+```{r}
+rf_fit |>
+  show_best(metric = "roc_auc")
+
+```
+Choose best model
+```{r}
+best_rf <- rf_fit |>
+  select_best(metric = "roc_auc")
+best_rf
+
+```
+
+Finalize RF model
+
+```{r}
+
+# Final workflow
+final_wf <- rf_wf |>
+  finalize_workflow(best_rf)
+final_wf
+
+# Fit the whole training set, then predict the test cases
+final_fit <- 
+  final_wf |>
+  last_fit(data_split)
+final_fit
+
+# Test metrics
+final_fit |> 
+  collect_metrics()
+
+```
+The RF model has the highest accuracy of 99% and an area under the ROC AUC
+curve of 1.
+
+
+Stacking the models
+
+Shared recipe
+
+```{r}
+stacked_recipe <- 
+  recipe(
+    los_long ~ ., 
+    data = mimiciv_other
+  ) |>
+  # Convert 'los_long' to factor (if it isn't already a factor)
+  step_mutate(los_long = as.factor(los_long)) |>
+  # Handle new levels in categorical variables (e.g., language)
+  step_novel(all_nominal_predictors()) |>
+  # Impute missing values for numeric columns (mean imputation)
+  step_impute_mean(all_numeric_predictors()) |>
+  # Impute missing values for categorical/logical columns (mode imputation)
+  step_impute_mode(all_nominal_predictors()) |>
+  step_unknown(all_nominal_predictors()) |>
+  # Create dummy variables for nominal predictors
+  step_dummy(all_nominal_predictors()) |>
+  # Zero-variance filter for numeric predictors
+  step_zv(all_numeric_predictors()) |>
+  # Normalize numeric predictors
+  step_normalize(all_numeric_predictors())
+stacked_recipe
+
+```
+Logistic Regression Model
+
+```{r}
+logit_mod <- 
+  logistic_reg(
+    penalty = tune(), 
+    mixture = tune()
+  ) |> 
+  set_engine("glmnet", standardize = TRUE)
+logit_mod
+
+
+logit_wf <- workflow() |>
+  add_recipe(stacked_recipe) |>
+  add_model(logit_mod)
+logit_wf
+
+logit_grid <- grid_regular(
+  penalty(range = c(-6, 3)), 
+  mixture(),
+  levels = c(100, 5)
+  )
+
+logit_res <- 
+  tune_grid(
+    object = logit_wf, 
+    resamples = folds, 
+    grid = logit_grid,
+    control = control_stack_grid()
+  )
+logit_res
+
+```
+
+Random Forest Model
+
+```{r}
+
+rf_mod <- 
+  rand_forest(
+    mode = "classification",
+    # Number of predictors randomly sampled in each split
+    mtry = tune(),
+    # Number of trees in ensemble
+    trees = tune()
+  ) |>
+  set_engine("ranger")
+rf_mod
+
+rf_wf <- workflow() |>
+  add_recipe(stacked_recipe) |>
+  add_model(rf_mod)
+rf_wf
+
+rf_grid <- grid_regular(
+  trees(range = c(100L, 500L)), 
+  mtry(range = c(1L, 5L)),
+  levels = c(5, 5)
+  )
+
+rf_res <- 
+  tune_grid(
+    object = rf_wf, 
+    resamples = folds, 
+    grid = rf_grid,
+    control = control_stack_grid()
+  )
+rf_res
+
+```
+
+
+
+
+Stack Logistic Regression and Randomforest
+
+```{r}
+stack_model <- 
+  # initialize the stack
+  stacks() |>
+  # add candidate members (fits)
+  add_candidates(logit_res) |>
+  add_candidates(rf_res) |>
+  #add_candidates(mlp_res) |>
+  # determine how to combine their predictions
+  blend_predictions(
+    penalty = 10^(-6:2),
+    metrics = c("roc_auc")
+    ) |>
+  # fit the candidates with nonzero stacking coefficients
+  fit_members()
+
+```
+Plot statistics of stack models.
+```{r}
+stack_model
+
+autoplot(stack_model)
+
+autoplot(stack_model, type = "members")
+
+autoplot(stack_model, type = "weights")
+
+
+collect_parameters(stack_model, "rf_res")
+
+```
+
+
+
+4. Compare model classification performance on the test set. Report both the area under ROC curve and accuracy for each machine learning algorithm and the model stacking. Interpret the results.
+
+From the different models used we report that the random forest model was the
+best in terms of accuracy and area under the ROC AUC curve. There is certainly
+overfitting occuring in this situation however, and it is likely given the
+current tuning that applying this model to new datasets will likely result
+in poor performance.
+
+
+What are the most important features in predicting long ICU stays? How do the models compare in terms of performance and interpretability?
+
+The SVM model took by far the longest to train and to evauate, estimating about
+30 minutes of run time. The logistic regression model was by far the fastest
+and also had the best interpretability.
