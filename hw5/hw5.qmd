@@ -3,7 +3,7 @@ title: "Biostat 203B Homework 5"
 subtitle: Due Mar 20 @ 11:59PM
 author: "Nathaniel Boyle and 006525153"
 format:
-  html:
+  pdf:
     theme: cosmogit
     embed-resources: true
     number-sections: false
@@ -311,7 +311,7 @@ logit_fit |>
   scale_x_log10()
 
 ```
-Show top 5 LR models (no standard error is showing)
+Show top 5 LR models
 ```{r}
 logit_fit |>
   show_best(metric = "roc_auc")
@@ -345,13 +345,17 @@ final_fit
 
 ```
 
-Test metrics
+LR Test metrics
 
 ```{r}
 # Test metrics
 final_fit |> 
   collect_metrics()
 ```
+
+We report that the Logistic regression model has an accuracy of 0.73 with an area
+under the ROC_AUC curve of 1.0
+
 Training SVM Model
 
 ```{r}
@@ -448,7 +452,7 @@ best_svm <- svm_fit |>
 best_svm
 
 ```
-Finalize our model
+Finalize SVM model
 
 ```{r}
 final_wf <- svm_wf |>
@@ -469,6 +473,9 @@ SVM test metrics
 final_fit |> 
   collect_metrics()
 ```
+For the SVM model we report an area under the roc_ curve of 0.99 with an
+accuracy of 96%
+
 Train Random Forest Model
 
 ```{r}
@@ -510,7 +517,6 @@ rf_mod
 ```
 
 ```{r}
-
 rf_wf <- workflow() |>
   add_recipe(rf_recipe) |>
   add_model(rf_mod)
@@ -545,6 +551,7 @@ rf_fit <- rf_wf |>
     control = control_stack_grid(), #for stacking
     metrics = metric_set(roc_auc, accuracy)
     )
+
 rf_fit
 
 ```
@@ -574,7 +581,7 @@ best_rf
 
 ```
 
-Finalize Model
+Finalize RF model
 
 ```{r}
 
@@ -594,6 +601,10 @@ final_fit |>
   collect_metrics()
 
 ```
+The RF model has the highest accuracy of 99% and an area under the ROC AUC
+curve of 1.
+
+
 Stacking the models
 
 Shared recipe
@@ -730,46 +741,19 @@ collect_parameters(stack_model, "rf_res")
 
 ```
 
-Final Classification (unable to reconcile error)
-
-```{r}
-# 
-# 
-# heart_pred <- mimiciv_test %>%
-#   bind_cols(predict(stack_model, ., type = "prob")) %>%
-#   print(width = Inf)
-# 
-# 
-# #Compute ROC AUC
-# yardstick::roc_auc(
-#   heart_pred,
-#   truth = los_long,
-#   contains(".pred_No")
-#   )
-# 
-# 
-# mimic_pred <-
-#   mimiciv_test |>
-#   select(los_long) |>
-#   bind_cols(
-#     predict(
-#       stack_model,
-#       mimiciv_test,
-#       type = "class",
-#       members = TRUE
-#       )
-#     ) |>
-#   print(width = Inf)
-# 
-# 
-# map(
-#   colnames(mimic_pred),
-#   ~mean(mimic_pred$los_long == pull(mimic_pred, .x))
-#   ) |>
-#   set_names(colnames(mimic_pred)) |>
-#   as_tibble() |>
-#   pivot_longer(c(everything(), -los_long))
-```
 
 
-4. Compare model classification performance on the test set. Report both the area under ROC curve and accuracy for each machine learning algorithm and the model stacking. Interpret the results. What are the most important features in predicting long ICU stays? How do the models compare in terms of performance and interpretability?
+4. Compare model classification performance on the test set. Report both the area under ROC curve and accuracy for each machine learning algorithm and the model stacking. Interpret the results.
+
+From the different models used we report that the random forest model was the
+best in terms of accuracy and area under the ROC AUC curve. There is certainly
+overfitting occuring in this situation however, and it is likely given the
+current tuning that applying this model to new datasets will likely result
+in poor performance.
+
+
+What are the most important features in predicting long ICU stays? How do the models compare in terms of performance and interpretability?
+
+The SVM model took by far the longest to train and to evauate, estimating about
+30 minutes of run time. The logistic regression model was by far the fastest
+and also had the best interpretability.
