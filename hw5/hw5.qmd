@@ -46,7 +46,6 @@ knitr::opts_chunk$set(warning = FALSE)
 ```{r}
 # Installs
 # Check if tidymodels is installed, and install if not
-# Check if tidymodels, rlang, or cli are installed, and install them if not
 
 if (!requireNamespace("tidymodels", quietly = TRUE)) {
   install.packages("tidymodels")
@@ -203,6 +202,7 @@ colSums(is.na(mimiciv_icu_cohort))
 #check test output
 mimiciv_test <- training(data_split)
 dim(mimiciv_test)
+colSums(is.na(mimiciv_icu_cohort))
 ```
 
 
@@ -594,17 +594,118 @@ final_fit |>
   collect_metrics()
 
 ```
-Stacking the 3 models
+Stacking the models
 
+Shared recipe
+
+```{r}
+stacked_recipe <- 
+  recipe(
+    los_long ~ ., 
+    data = mimiciv_other
+  ) |>
+  # Convert 'los_long' to factor (if it isn't already a factor)
+  step_mutate(los_long = as.factor(los_long)) |>
+  # Handle new levels in categorical variables (e.g., language)
+  step_novel(all_nominal_predictors()) |>
+  # Impute missing values for numeric columns (mean imputation)
+  step_impute_mean(all_numeric_predictors()) |>
+  # Impute missing values for categorical/logical columns (mode imputation)
+  step_impute_mode(all_nominal_predictors()) |>
+  step_unknown(all_nominal_predictors()) |>
+  # Create dummy variables for nominal predictors
+  step_dummy(all_nominal_predictors()) |>
+  # Zero-variance filter for numeric predictors
+  step_zv(all_numeric_predictors()) |>
+  # Normalize numeric predictors
+  step_normalize(all_numeric_predictors())
+stacked_recipe
+
+```
+Logistic Regression Model
+
+```{r}
+logit_mod <- 
+  logistic_reg(
+    penalty = tune(), 
+    mixture = tune()
+  ) |> 
+  set_engine("glmnet", standardize = TRUE)
+logit_mod
+
+
+logit_wf <- workflow() |>
+  add_recipe(stacked_recipe) |>
+  add_model(logit_mod)
+logit_wf
+
+logit_grid <- grid_regular(
+  penalty(range = c(-6, 3)), 
+  mixture(),
+  levels = c(100, 5)
+  )
+
+logit_res <- 
+  tune_grid(
+    object = logit_wf, 
+    resamples = folds, 
+    grid = logit_grid,
+    control = control_stack_grid()
+  )
+logit_res
+
+```
+
+Random Forest Model
+
+```{r}
+
+rf_mod <- 
+  rand_forest(
+    mode = "classification",
+    # Number of predictors randomly sampled in each split
+    mtry = tune(),
+    # Number of trees in ensemble
+    trees = tune()
+  ) |>
+  set_engine("ranger")
+rf_mod
+
+rf_wf <- workflow() |>
+  add_recipe(stacked_recipe) |>
+  add_model(rf_mod)
+rf_wf
+
+rf_grid <- grid_regular(
+  trees(range = c(100L, 500L)), 
+  mtry(range = c(1L, 5L)),
+  levels = c(5, 5)
+  )
+
+rf_res <- 
+  tune_grid(
+    object = rf_wf, 
+    resamples = folds, 
+    grid = rf_grid,
+    control = control_stack_grid()
+  )
+rf_res
+
+```
+
+
+
+
+Stack Logistic Regression and Randomforest
 
 ```{r}
 stack_model <- 
   # initialize the stack
   stacks() |>
   # add candidate members (fits)
-  add_candidates(logit_fit) |>
-  add_candidates(rf_fit) |>
-  add_candidates(svm_fit) |>
+  add_candidates(logit_res) |>
+  add_candidates(rf_res) |>
+  #add_candidates(mlp_res) |>
   # determine how to combine their predictions
   blend_predictions(
     penalty = 10^(-6:2),
@@ -614,7 +715,7 @@ stack_model <-
   fit_members()
 
 ```
-
+Plot statistics of stack models.
 ```{r}
 stack_model
 
@@ -629,43 +730,45 @@ collect_parameters(stack_model, "rf_res")
 
 ```
 
-Final Classification
+Final Classification (unable to reconcile error)
 
 ```{r}
-
-heart_pred <- Heart_test %>%
-  bind_cols(predict(stack_model, ., type = "prob")) %>%
-  print(width = Inf)
-
-#Compute ROC AUC
-yardstick::roc_auc(
-  heart_pred,
-  truth = los_long,
-  contains(".pred_No")
-  )
-
-
-heart_pred <-
-  Heart_test |>
-  select(AHD) |>
-  bind_cols(
-    predict(
-      stack_model,
-      Heart_test,
-      type = "class",
-      members = TRUE
-      )
-    ) |>
-  print(width = Inf)
-
-
-map(
-  colnames(heart_pred),
-  ~mean(heart_pred$los_long == pull(heart_pred, .x))
-  ) |>
-  set_names(colnames(heart_pred)) |>
-  as_tibble() |>
-  pivot_longer(c(everything(), -los_long))
+# 
+# 
+# heart_pred <- mimiciv_test %>%
+#   bind_cols(predict(stack_model, ., type = "prob")) %>%
+#   print(width = Inf)
+# 
+# 
+# #Compute ROC AUC
+# yardstick::roc_auc(
+#   heart_pred,
+#   truth = los_long,
+#   contains(".pred_No")
+#   )
+# 
+# 
+# mimic_pred <-
+#   mimiciv_test |>
+#   select(los_long) |>
+#   bind_cols(
+#     predict(
+#       stack_model,
+#       mimiciv_test,
+#       type = "class",
+#       members = TRUE
+#       )
+#     ) |>
+#   print(width = Inf)
+# 
+# 
+# map(
+#   colnames(mimic_pred),
+#   ~mean(mimic_pred$los_long == pull(mimic_pred, .x))
+#   ) |>
+#   set_names(colnames(mimic_pred)) |>
+#   as_tibble() |>
+#   pivot_longer(c(everything(), -los_long))
 ```
 
 
