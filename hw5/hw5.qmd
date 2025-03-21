@@ -170,7 +170,7 @@ mimiciv_icu_cohort <- mimiciv_icu_cohort |>
 
 
 # Drop rows with any NA values
-mimiciv_icu_cohort <- mimiciv_icu_cohort %>%
+mimiciv_icu_cohort <- mimiciv_icu_cohort |>
   drop_na()
 
 # Now proceed with the rest of your analysis, such as recipe, model fitting, etc.
@@ -215,9 +215,9 @@ logit_recipe <- recipe(
     los_long ~ .,  # Stratify on los_long
     data = mimiciv_other
   ) |>
-  # Convert 'los_long' to factor (if it isn't already a factor)
-    # Handle new levels in categorical variables (e.g., language)
+  # Handle new levels in categorical variables (e.g., language)
   step_novel(all_nominal_predictors()) |>
+  # Convert 'los_long' to factor (if it isn't already a factor)
   step_mutate(los_long = as.factor(los_long)) |>
   # Impute missing numeric values with the median
   step_impute_median(all_numeric_predictors()) |>
@@ -273,7 +273,7 @@ param_grid <- grid_regular(
 
 ```{r}
 # Cross Validation Set up
-folds <- vfold_cv(mimiciv_other, v = 5)
+folds <- vfold_cv(mimiciv_other, v = 2)
 folds
 
 ```
@@ -284,6 +284,7 @@ folds
   tune_grid(
     resamples = folds,
     grid = param_grid,
+    control = control_stack_grid(), #for stacking
     metrics = metric_set(roc_auc, accuracy)
     )) |>
   system.time()
@@ -361,6 +362,8 @@ svm_recipe <- recipe(
   ) |>
   # Convert 'los_long' to factor (if it isn't already a factor)
   step_mutate(los_long = as.factor(los_long)) |>
+  # Handle new levels in categorical variables (e.g., language)
+  step_novel(all_nominal_predictors()) |>
   # Impute missing values for numeric columns (mean imputation)
   step_impute_mean(all_numeric_predictors()) |>
   # Impute missing values for categorical/logical columns (mode imputation)
@@ -412,12 +415,15 @@ set.seed(203)
 
 folds <- vfold_cv(mimiciv_other, v = 2)
 folds
+```
 
-
+```{r}
+#fit svm
 svm_fit <- svm_wf |>
   tune_grid(
     resamples = folds,
     grid = param_grid,
+    control = control_stack_grid(), #for stacking
     metrics = metric_set(roc_auc, accuracy)
     )
 svm_fit
@@ -466,7 +472,6 @@ final_fit |>
 Train Random Forest Model
 
 ```{r}
-mimiciv_other <- mimiciv_other %>% filter(!is.na(los_long))
 
 rf_recipe <- recipe(
     los_long ~ .,  # Stratify on los_long
@@ -474,6 +479,8 @@ rf_recipe <- recipe(
   ) |>
   # Convert 'los_long' to factor (if it isn't already a factor)
   step_mutate(los_long = as.factor(los_long)) |>
+  # Handle new levels in categorical variables (e.g., language)
+  step_novel(all_nominal_predictors()) |>
   # Impute missing values for numeric columns (mean imputation)
   step_impute_mean(all_numeric_predictors()) |>
   # Impute missing values for categorical/logical columns (mode imputation)
@@ -486,9 +493,6 @@ rf_recipe <- recipe(
   # Normalize numeric predictors
   step_normalize(all_numeric_predictors())|>
   print()
-
-sum(is.na(mimiciv_other$los_long))
-
 
 ```
 
@@ -515,7 +519,7 @@ rf_wf
 
 
 ```{r}
-
+#set grid
 param_grid <- grid_regular(
   trees(range = c(100L, 500L)), 
   mtry(range = c(1L, 5L)),
@@ -525,7 +529,7 @@ param_grid
 ```
 
 ```{r}
-
+#set folds
 set.seed(203)
 
 folds <- vfold_cv(mimiciv_other, v = 2)
@@ -533,10 +537,12 @@ folds
 ```
 
 ```{r}
+#fit random forest model
 rf_fit <- rf_wf |>
   tune_grid(
     resamples = folds,
     grid = param_grid,
+    control = control_stack_grid(), #for stacking
     metrics = metric_set(roc_auc, accuracy)
     )
 rf_fit
@@ -592,13 +598,13 @@ Stacking the 3 models
 
 
 ```{r}
-heart_model_st <- 
+stack_model <- 
   # initialize the stack
   stacks() |>
   # add candidate members (fits)
   add_candidates(logit_fit) |>
-  add_candidates(rf_res) |>
-  add_candidates(mlp_res) |>
+  add_candidates(rf_fit) |>
+  add_candidates(svm_fit) |>
   # determine how to combine their predictions
   blend_predictions(
     penalty = 10^(-6:2),
@@ -606,26 +612,35 @@ heart_model_st <-
     ) |>
   # fit the candidates with nonzero stacking coefficients
   fit_members()
-heart_model_st
 
-autoplot(heart_model_st)
+```
 
-autoplot(heart_model_st, type = "members")
+```{r}
+stack_model
 
-autoplot(heart_model_st, type = "weights")
+autoplot(stack_model)
+
+autoplot(stack_model, type = "members")
+
+autoplot(stack_model, type = "weights")
 
 
-collect_parameters(heart_model_st, "rf_res")
+collect_parameters(stack_model, "rf_res")
 
+```
+
+Final Classification
+
+```{r}
 
 heart_pred <- Heart_test %>%
-  bind_cols(predict(heart_model_st, ., type = "prob")) %>%
+  bind_cols(predict(stack_model, ., type = "prob")) %>%
   print(width = Inf)
 
-
+#Compute ROC AUC
 yardstick::roc_auc(
   heart_pred,
-  truth = AHD,
+  truth = los_long,
   contains(".pred_No")
   )
 
@@ -635,7 +650,7 @@ heart_pred <-
   select(AHD) |>
   bind_cols(
     predict(
-      heart_model_st,
+      stack_model,
       Heart_test,
       type = "class",
       members = TRUE
@@ -646,11 +661,11 @@ heart_pred <-
 
 map(
   colnames(heart_pred),
-  ~mean(heart_pred$AHD == pull(heart_pred, .x))
+  ~mean(heart_pred$los_long == pull(heart_pred, .x))
   ) |>
   set_names(colnames(heart_pred)) |>
   as_tibble() |>
-  pivot_longer(c(everything(), -AHD))
+  pivot_longer(c(everything(), -los_long))
 ```
 
 
